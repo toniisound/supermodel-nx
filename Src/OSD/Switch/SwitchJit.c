@@ -18,6 +18,7 @@
 
 #include "SwitchJit.h"
 #include <switch.h>
+#include <stdlib.h>
 
 static Jit  s_jit;
 static bool s_created = false;
@@ -43,6 +44,17 @@ int switch_jit_create(size_t size, SwitchJitInfo *info, unsigned *rc_out)
     return -1;
   }
   s_created = true;
+
+  // The code memory is made from heap pages that stay locked to it until
+  // jitClose(). Left open, the homebrew loader cannot take its heap back when
+  // the .nro exits and the console shows an error (e.g. when returning to the
+  // game list). Close it on every exit path.
+  static bool s_atexit_registered = false;
+  if (!s_atexit_registered)
+  {
+    atexit(switch_jit_close);
+    s_atexit_registered = true;
+  }
 
   // The fallback backend starts out writable with no RX view; map it now so
   // both addresses are valid outside of a write bracket.

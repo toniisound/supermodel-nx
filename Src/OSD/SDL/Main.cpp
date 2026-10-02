@@ -110,6 +110,7 @@
 #endif
 #ifdef __SWITCH__
 #include "OSD/Switch/SwitchPlatform.h"
+#include "OSD/Switch/SwitchJit.h"
 #endif
 #ifdef HAVE_PPC_JIT
 #include "CPU/PowerPC/ppc.h"   // ppc_set_jit_enabled()
@@ -2604,6 +2605,12 @@ int main(int argc, char **argv)
 #endif // SUPERMODEL_DEBUGGER
   InfoLog("Deleting emulator...");
   delete Model3;
+#if defined(__SWITCH__) && defined(HAVE_PPC_JIT)
+  // Emulator threads are gone: release the JIT code memory now (also done at
+  // exit as a fallback) so the homebrew loader gets its heap back.
+  InfoLog("Releasing JIT code memory...");
+  switch_jit_close();
+#endif
 
 Exit:
   InfoLog("Closing inputs and window...");

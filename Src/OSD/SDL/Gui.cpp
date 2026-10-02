@@ -8,6 +8,7 @@
 #include <memory>
 #include <thread>
 #include <map>
+#include <set>
 #include <system_error>
 #include "GameLoader.h"
 #include "../../Pkgs/imgui/imgui.h"
@@ -607,6 +608,24 @@ static std::shared_ptr<CInputs> GetInputSystem(Util::Config::Node& config, SDL_W
     return nullptr;
 }
 
+static bool RomZipExists(const std::string& name)
+{
+    std::error_code ec;
+    return std::filesystem::is_regular_file(std::filesystem::path("ROMs") / (name + ".zip"), ec);
+}
+
+// Empty if the game can be started, otherwise the zip file that is missing.
+static std::string MissingRomZip(const Game& game, const std::set<std::string>& installed)
+{
+    if (!installed.count(game.name)) {
+        return game.name + ".zip";
+    }
+    if (!game.parent.empty() && !installed.count(game.parent)) {
+        return game.parent + ".zip (parent set of " + game.name + ")";
+    }
+    return {};
+}
+
 static Game GetGame(const std::map<std::string, Game>& games, int selectedGameIndex)
 {
     Game game;
@@ -626,7 +645,7 @@ static Game GetGame(const std::map<std::string, Game>& games, int selectedGameIn
     return game;
 }
 
-static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<std::string, Game>& games, int& selectedGameIndex, bool& exit, bool& saveSettings, SDL_Window* window, std::shared_ptr<CInputs>& inputs, KeyBindState& kb)
+static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<std::string, Game>& games, const std::set<std::string>& installed, bool& onlyInstalled, int& selectedGameIndex, bool& exit, bool& saveSettings, SDL_Window* window, std::shared_ptr<CInputs>& inputs, KeyBindState& kb)
 {
     ImVec4 clear_color = ImVec4(0.0f, 0.5f, 192/255.f, 1.00f);
 
@@ -640,6 +659,12 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
     ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 
     ImGui::Begin("Custom Window", nullptr, ImGuiWindowFlags_NoTitleBar); // Explicitly set a window name
+
+    if (ImGui::Checkbox("Only show games found in ROMs folder", &onlyInstalled)) {
+        selectedGameIndex = -1;     // row numbers refer to the other list now
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(%d games found)", (int)installed.size());
 
     ImGui::BeginChild("TableRegion", ImVec2(0.0f, 200.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
 
@@ -656,9 +681,16 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
         int row = 0;
         for (const auto& g : games) {
 
+            const bool missing = !installed.count(g.second.name);
+
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::Text("%s", g.second.title.c_str());
+            if (missing) {
+                ImGui::TextDisabled("%s", g.second.title.c_str());
+            }
+            else {
+                ImGui::Text("%s", g.second.title.c_str());
+            }
             ImGui::TableSetColumnIndex(1);
             if (ImGui::Selectable(g.second.name.c_str(), selectedGameIndex == row, ImGuiSelectableFlags_SpanAllColumns)) {
                 selectedGameIndex = row;
@@ -685,6 +717,30 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
 
     // draw button options
     DrawButtonOptions(config, selectedGameIndex, exit, saveSettings);
+
+    // Don't leave the menu for a game whose ROMs aren't there: say so instead.
+    static std::string missingZip;
+    if (exit && selectedGameIndex >= 0) {
+        missingZip = MissingRomZip(GetGame(games, selectedGameIndex), installed);
+        if (!missingZip.empty()) {
+            exit = false;
+            ImGui::OpenPopup("ROM not found");
+        }
+    }
+
+    if (ImGui::BeginPopupModal("ROM not found", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+        ImGui::Text("This game is not on the SD card.");
+        ImGui::Text("Missing file: ROMs/%s", missingZip.c_str());
+        ImGui::Separator();
+
+        if (ImGui::Button("OK", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SetItemDefaultFocus();
+
+        ImGui::EndPopup();
+    }
 
     // create a space
     ImGui::Dummy(ImVec2(0.0f, 20.0f));
@@ -921,17 +977,20 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
     GameLoader loader(xmlFile);
     const auto& allGames = loader.GetGames();
 
-    // Only list the games whose ROM set is in the ROMs folder (the same path
-    // GetRomPath() builds). If none is found, list everything so the user
-    // still sees what the ROM sets must be called.
+    // ROM sets present in the ROMs folder (the path GetRomPath() builds).
+    // Checked once here: the SD card is slow to query every frame.
+    std::set<std::string> installed;
     std::map<std::string, Game> installedGames;
     for (const auto& g : allGames) {
-        std::error_code ec;
-        if (std::filesystem::is_regular_file(std::filesystem::path("ROMs") / (g.second.name + ".zip"), ec)) {
+        if (RomZipExists(g.second.name)) {
+            installed.insert(g.second.name);
             installedGames.insert(g);
         }
     }
-    const auto& games = installedGames.empty() ? allGames : installedGames;
+    bool onlyInstalled = !installedGames.empty();
+    auto currentList = [&]() -> const std::map<std::string, Game>& {
+        return onlyInstalled ? installedGames : allGames;
+    };
     int selectedGame = -1;  // -1 means no selection
     std::vector<std::string> romFiles;
     std::string path;
@@ -955,7 +1014,7 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
             }
         }
 
-        GUI(io, config, games, selectedGame, exit, saveSettings, window, inputs, kb);
+        GUI(io, config, currentList(), installed, onlyInstalled, selectedGame, exit, saveSettings, window, inputs, kb);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
@@ -966,7 +1025,7 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
         }
     }
 
-    path = GetRomPath(selectedGame, games);
+    path = GetRomPath(selectedGame, currentList());
     if (!path.empty()) {
         romFiles.emplace_back(path);
     }

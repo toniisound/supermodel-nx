@@ -1409,6 +1409,23 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
     if (s_runtime_config["ShowFrameRate"].ValueAs<bool>())
     {
       fpsFramesElapsed += 1;
+#ifdef __SWITCH__
+      // Where each frame's time goes (Supermodel's own per-frame timings, in
+      // ms), averaged for the 5-second log line below. With MultiThreaded the
+      // PowerPC runs alongside rendering, so the slowest of the two sets the pace.
+      struct SwitchTimingSums { uint64_t ppc = 0, render = 0, snd = 0, drv = 0, frame = 0; uint32_t maxPpc = 0, maxRender = 0, n = 0; };
+      static SwitchTimingSums s_timing;
+      if (CModel3 *M = dynamic_cast<CModel3 *>(Model3))
+      {
+        FrameTimings t = M->GetTimings();
+        s_timing.ppc += t.ppcTicks;       s_timing.maxPpc = std::max(s_timing.maxPpc, (uint32_t)t.ppcTicks);
+        s_timing.render += t.renderTicks; s_timing.maxRender = std::max(s_timing.maxRender, (uint32_t)t.renderTicks);
+        s_timing.snd += t.sndTicks;
+        s_timing.drv += t.drvTicks;
+        s_timing.frame += t.frameTicks;
+        s_timing.n++;
+      }
+#endif
       uint64_t measurementTicks = currentFPSTicks - prevFPSTicks;
       if (measurementTicks >= s_perfCounterFrequency) // update FPS every 1 second (s_perfCounterFrequency is how many perf ticks in one second)
       {
@@ -1421,6 +1438,13 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
         if (++s_fpsLogCounter >= 5)
         {
           InfoLog("FPS: %1.1f%s", fps, paused ? " (paused)" : "");
+          if (s_timing.n)
+            InfoLog("Time per frame (ms, budget 17.4): PowerPC %.1f (max %u), render %.1f (max %u), sound %.1f, drive board %.1f, whole frame %.1f",
+                    double(s_timing.ppc) / s_timing.n, s_timing.maxPpc,
+                    double(s_timing.render) / s_timing.n, s_timing.maxRender,
+                    double(s_timing.snd) / s_timing.n, double(s_timing.drv) / s_timing.n,
+                    double(s_timing.frame) / s_timing.n);
+          s_timing = SwitchTimingSums();
           s_fpsLogCounter = 0;
         }
 #endif

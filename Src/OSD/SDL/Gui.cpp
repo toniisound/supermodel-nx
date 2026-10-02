@@ -834,6 +834,14 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 #ifdef __SWITCH__
+    // Must match CreateGLScreen() in Main.cpp exactly: the emulator takes this
+    // window and context over, and SDL rebuilds the EGL surface from the
+    // current attributes, which must give the context's EGL config.
+    SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+#endif
+#ifdef __SWITCH__
     // Same flags as the emulator's own window, which takes this one over. A
     // resizable window would also be resized by SDL on every dock/undock.
     SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_INPUT_FOCUS);

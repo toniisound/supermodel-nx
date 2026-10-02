@@ -309,7 +309,15 @@ static Result CreateGLScreen(bool coreContext, bool quadRendering, const std::st
   SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);
   SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);
   SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);
+#ifdef __SWITCH__
+  // Same attributes as the game selection window whose context is reused
+  // (Gui.cpp): a different EGL config makes eglMakeCurrent fail with
+  // EGL_BAD_MATCH once SDL rebuilds the surface. New3D renders into its own
+  // frame buffers, so the extra depth/stencil in the window costs nothing.
+  if (false)
+#else
   if(s_runtime_config["New3DEngine"].ValueAsDefault<bool>(true))
+#endif
   {
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,0);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE,0);

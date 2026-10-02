@@ -1348,6 +1348,15 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
         double fps = double(fpsFramesElapsed) / (double(measurementTicks) / double(s_perfCounterFrequency));
         snprintf(titleStr, sizeof(titleStr), "%s - %1.3f FPS%s", baseTitleStr, fps, paused ? " (Paused)" : "");
         SDL_SetWindowTitle(s_window, titleStr);
+#ifdef __SWITCH__
+        // No window title on the Switch: log the frame rate every 5 seconds.
+        static unsigned s_fpsLogCounter = 0;
+        if (++s_fpsLogCounter >= 5)
+        {
+          InfoLog("FPS: %1.1f%s", fps, paused ? " (paused)" : "");
+          s_fpsLogCounter = 0;
+        }
+#endif
         prevFPSTicks = currentFPSTicks;   // reset tick count
         fpsFramesElapsed = 0;             // reset frame count
       }

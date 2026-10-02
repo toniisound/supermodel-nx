@@ -312,6 +312,9 @@ void CFileLogger::WriteToFiles(const char *str)
   for (std::ofstream &ofs: m_logFiles)
   {
     ofs << str;
+#ifdef __SWITCH__
+    ofs.flush();   // the log must survive the app being closed from the HOME menu
+#endif
   }
 
   for (FILE *fp: m_systemFiles)

@@ -7,6 +7,8 @@
 #include <filesystem>
 #include <memory>
 #include <thread>
+#include <map>
+#include <system_error>
 #include "GameLoader.h"
 #include "../../Pkgs/imgui/imgui.h"
 #include "../../Pkgs/imgui/imgui_internal.h"
@@ -917,7 +919,19 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
 
     std::string xmlFile = config["GameXMLFile"].ValueAs<std::string>();
     GameLoader loader(xmlFile);
-    auto& games = loader.GetGames();
+    const auto& allGames = loader.GetGames();
+
+    // Only list the games whose ROM set is in the ROMs folder (the same path
+    // GetRomPath() builds). If none is found, list everything so the user
+    // still sees what the ROM sets must be called.
+    std::map<std::string, Game> installedGames;
+    for (const auto& g : allGames) {
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(std::filesystem::path("ROMs") / (g.second.name + ".zip"), ec)) {
+            installedGames.insert(g);
+        }
+    }
+    const auto& games = installedGames.empty() ? allGames : installedGames;
     int selectedGame = -1;  // -1 means no selection
     std::vector<std::string> romFiles;
     std::string path;

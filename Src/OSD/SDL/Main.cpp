@@ -106,6 +106,9 @@
 #ifdef __SWITCH__
 #include "OSD/Switch/SwitchPlatform.h"
 #endif
+#ifdef HAVE_PPC_JIT
+#include "CPU/PowerPC/ppc.h"   // ppc_set_jit_enabled()
+#endif
 
 
 /******************************************************************************
@@ -1512,6 +1515,9 @@ Util::Config::Node DefaultConfig()
   // CModel3
   config.Set("PowerPCFrequency", 0u, "Core", 0u, 200u);
   config.Set("MultiThreaded", true,"Core");
+#ifdef HAVE_PPC_JIT
+  config.Set("PowerPCJit", true, "Core");     // ARM64 recompiler; 0 = interpreter
+#endif
   config.Set("GPUMultiThreaded", true, "Core");
   // 2D and 3D graphics engines
   config.Set("MultiTexture", false, "Legacy3D");
@@ -2462,6 +2468,10 @@ int main(int argc, char **argv)
   exitCode = Supermodel(game, &rom_set, Model3, Inputs, Outputs, Debugger);
 #else
   // Fire up Supermodel
+#ifdef HAVE_PPC_JIT
+  ppc_set_jit_enabled(s_runtime_config["PowerPCJit"].ValueAsDefault<bool>(true));
+  InfoLog("PowerPC recompiler: %s", s_runtime_config["PowerPCJit"].ValueAsDefault<bool>(true) ? "on" : "off (interpreter)");
+#endif
   exitCode = Supermodel(game, &rom_set, Model3, Inputs, Outputs);
 #endif // SUPERMODEL_DEBUGGER
   delete Model3;

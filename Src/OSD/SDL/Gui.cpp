@@ -19,6 +19,9 @@
 #include "Main.h"
 #ifdef __SWITCH__
 #include "../Switch/SwitchPlatform.h"
+
+static SDL_Window *s_guiWindow = nullptr;    // see TakeGuiWindow() in Gui.h
+static SDL_GLContext s_guiContext = nullptr;
 #endif
 
 #ifdef _WIN32
@@ -951,11 +954,30 @@ exitNoSave:
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
 
+#ifdef __SWITCH__
+    if (!romFiles.empty()) {
+        // Keep the window and context for the emulator (see Gui.h).
+        s_guiWindow = window;
+        s_guiContext = glContext;
+        return romFiles;
+    }
+#endif
     SDL_GL_DeleteContext(glContext);
     SDL_DestroyWindow(window);
     SDL_Quit();
 
     return romFiles;
 }
+
+#ifdef __SWITCH__
+SDL_Window *TakeGuiWindow(void **glContext)
+{
+    SDL_Window *window = s_guiWindow;
+    *glContext = s_guiContext;
+    s_guiWindow = nullptr;
+    s_guiContext = nullptr;
+    return window;
+}
+#endif
 
 

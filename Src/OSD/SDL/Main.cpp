@@ -324,6 +324,30 @@ static Result CreateGLScreen(bool coreContext, bool quadRendering, const std::st
   }
 #endif
 
+  SDL_GLContext context = nullptr;
+
+#ifdef __SWITCH__
+  // Reuse the game selection window and its OpenGL 4.1 core context (Gui.h).
+  // The legacy renderer needs a compatibility context, so it gets a new one.
+  if (coreContext)
+  {
+    void *guiContext = nullptr;
+    s_window = TakeGuiWindow(&guiContext);
+    context = static_cast<SDL_GLContext>(guiContext);
+  }
+  else
+  {
+    void *guiContext = nullptr;
+    if (SDL_Window *guiWindow = TakeGuiWindow(&guiContext))
+    {
+      SDL_GL_DeleteContext(static_cast<SDL_GLContext>(guiContext));
+      SDL_DestroyWindow(guiWindow);
+    }
+  }
+#endif
+
+  if (nullptr == s_window)
+  {
   // Set video mode
   s_window = SDL_CreateWindow(caption.c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, *xResPtr, *yResPtr, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | (fullScreen ? SDL_WINDOW_FULLSCREEN : 0));
   if (nullptr == s_window)
@@ -338,11 +362,12 @@ static Result CreateGLScreen(bool coreContext, bool quadRendering, const std::st
   }
 
   // Create OpenGL context
-  SDL_GLContext context = SDL_GL_CreateContext(s_window);
+  context = SDL_GL_CreateContext(s_window);
   if (nullptr == context)
   {
     ErrorLog("Unable to create OpenGL context: %s\n", SDL_GetError());
     return Result::FAIL;
+  }
   }
 
   // Set vsync

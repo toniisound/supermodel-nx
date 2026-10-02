@@ -132,6 +132,25 @@ static Util::Config::Node s_runtime_config("Global");
 
 SDL_Window *s_window = nullptr;
 
+#ifdef __SWITCH__
+static SDL_GLContext s_glContext = nullptr;
+
+// SDL's Switch driver rebuilds the EGL surface when the window is resized or
+// changes mode, and the context does not always end up current again (OpenGL
+// then returns nothing). Bind it explicitly; unbinding first gets past SDL's
+// "already current" shortcut.
+static void SwitchRebindGL(const char *where)
+{
+  if (!s_window || !s_glContext)
+    return;
+  SDL_GL_MakeCurrent(s_window, nullptr);
+  if (SDL_GL_MakeCurrent(s_window, s_glContext) != 0)
+    ErrorLog("Unable to make the OpenGL context current after %s: %s", where, SDL_GetError());
+  else if (glad_glGetString != nullptr && glGetString(GL_VERSION) == nullptr)   // GL functions may not be loaded yet
+    ErrorLog("No OpenGL context after %s.", where);
+}
+#endif
+
 /*
  * Position and size of rectangular region within OpenGL display to render to.
  * Unlike the config tree, these end up containing the actual resolution (and
@@ -375,6 +394,10 @@ static Result CreateGLScreen(bool coreContext, bool quadRendering, const std::st
 
   // Set the context as the current window context
   SDL_GL_MakeCurrent(s_window, context);
+#ifdef __SWITCH__
+  s_glContext = context;
+  SwitchRebindGL("creating the window");
+#endif
 
   // Initialize GLEW, allowing us to use features beyond OpenGL 1.2
   err = glewInit();
@@ -424,6 +447,9 @@ static Result ResizeGLScreen(unsigned *xOffsetPtr, unsigned *yOffsetPtr, unsigne
     ErrorLog("Unable to enter %s mode: %s\n", fullScreen ? "fullscreen" : "windowed", SDL_GetError());
     return Result::FAIL;
   }
+#ifdef __SWITCH__
+  SwitchRebindGL("changing to full screen");
+#endif
 
   return SetGLGeometry(xOffsetPtr, yOffsetPtr, xResPtr, yResPtr, totalXResPtr, totalYResPtr, keepAspectRatio);
 }
@@ -1000,6 +1026,9 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
   snprintf(baseTitleStr, sizeof(baseTitleStr), "Supermodel - %s", game.title.c_str());
   SDL_SetWindowTitle(s_window, baseTitleStr);
   SDL_SetWindowSize(s_window, totalXRes, totalYRes);
+#ifdef __SWITCH__
+  SwitchRebindGL("resizing the window");
+#endif
 
   int xpos = s_runtime_config["WindowXPosition"].ValueAsDefault<int>(SDL_WINDOWPOS_CENTERED);
   int ypos = s_runtime_config["WindowYPosition"].ValueAsDefault<int>(SDL_WINDOWPOS_CENTERED);

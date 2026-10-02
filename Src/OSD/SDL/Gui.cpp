@@ -833,7 +833,13 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+#ifdef __SWITCH__
+    // Same flags as the emulator's own window, which takes this one over. A
+    // resizable window would also be resized by SDL on every dock/undock.
+    SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_INPUT_FOCUS);
+#else
     SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_INPUT_FOCUS);
+#endif
 
     // Create SDL window
 #ifdef __SWITCH__

@@ -244,9 +244,11 @@
 #include <algorithm>
 
 
-// Libretro core options
+// Libretro core options (the SDL front end uses Supermodel.ini instead)
+#ifdef SUPERMODEL_OSD_LIBRETRO
 #include "OSD/libretro/CoreOptionsTypes.h"
 extern CoreOptions g_options;
+#endif
 /******************************************************************************
  Model 3 Inputs
 
@@ -2088,9 +2090,11 @@ ThreadError:
 
 static unsigned GetCPUClockFrequencyInHz(const Game &game, Util::Config::Node &config)
 {
+#ifdef SUPERMODEL_OSD_LIBRETRO
   // Core option overrides config file and stepping defaults
   if (g_options.ppc_frequency > 0)
     return (unsigned)g_options.ppc_frequency * 1000000;
+#endif
 
   unsigned mhz = config["PowerPCFrequency"].ValueAsDefault<unsigned>(0);
   if (!mhz)

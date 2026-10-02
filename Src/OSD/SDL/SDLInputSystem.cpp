@@ -33,6 +33,9 @@
 
 #include "Supermodel.h"
 #include "Inputs/Input.h"
+#ifdef __SWITCH__
+#include "OSD/Switch/SwitchPlatform.h"
+#endif
 
 #include <vector>
 using namespace std;
@@ -452,6 +455,9 @@ bool CSDLInputSystem::InitializeSystem()
         return false;
     }
     SDL_GameControllerEventState(SDL_ENABLE);
+#ifdef __SWITCH__
+    SwitchAddGamepadMappings();   // Nintendo button layout for Joy-Cons / Pro Controller
+#endif
   } else {
     if (SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) != 0)
     {

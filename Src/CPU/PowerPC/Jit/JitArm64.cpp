@@ -3,15 +3,59 @@
 #include "JitArm64.h"
 #include "Arm64Emitter.h"
 
+#if !defined(__SWITCH__)
 #include <sys/mman.h>
+#endif
 #include <cerrno>
 #include <cstring>
 #include <cstdio>
 #if defined(__APPLE__)
 #include <pthread.h>
 #endif
-#include "../../../../OSD/Logger.h"
+#if defined(__SWITCH__)
+#include "OSD/Switch/SwitchJit.h"   // libnx kept out of this file: its Result clashes with Supermodel's
+#endif
+#include "OSD/Logger.h"
 #define JIT_LOG(...) DebugLog("[JIT] " __VA_ARGS__)
+
+// ---------------------------------------------------------------------------
+// Write and execute views of the code buffer
+//
+// On most hosts the code buffer is mapped once (RWX, or MAP_JIT on Apple), so
+// the address the emitter writes to is the address the CPU executes. On the
+// Nintendo Switch, libnx's JIT API maps the same memory twice: an RW view for
+// writing and an RX view for executing, at different addresses.
+//
+// Convention in this file: every pointer the compiler handles internally
+// (emitter positions, fixup sites, block starts, chaining targets) is a
+// WRITE-view pointer. A relative branch between two write-view addresses has
+// the same offset as between the matching execute-view addresses, so encoded
+// branches stay valid. Only JitBlock::fn, which the interpreter calls, holds
+// an EXECUTE-view pointer; to_exec()/to_write() convert at that boundary.
+// g_rx_delta is 0 on single-mapping hosts, so both conversions are no-ops.
+// ---------------------------------------------------------------------------
+static intptr_t g_rx_delta = 0;   // execute address minus write address
+
+static inline uint8_t *to_exec(void *write_ptr)
+{
+    return (uint8_t *)write_ptr + g_rx_delta;
+}
+
+static inline uint8_t *to_write(void *exec_ptr)
+{
+    return exec_ptr ? (uint8_t *)exec_ptr - g_rx_delta : nullptr;
+}
+
+// Make code just written at write_ptr visible to instruction fetch.
+static inline void sync_code(void *write_ptr, size_t len)
+{
+    if (len == 0) return;
+#if defined(__SWITCH__)
+    switch_jit_sync(write_ptr, to_exec(write_ptr), len);
+#else
+    __builtin___clear_cache((char *)write_ptr, (char *)write_ptr + len);
+#endif
+}
 
 namespace {
 
@@ -20,6 +64,9 @@ static inline void set_jit_executable(bool executable)
 #if defined(__APPLE__)
     if (__builtin_available(macOS 11.0, *))
         pthread_jit_write_protect_np(executable ? 1 : 0);
+#elif defined(__SWITCH__)
+    if (executable) switch_jit_end_write();
+    else            switch_jit_begin_write();
 #else
     (void)executable;
 #endif
@@ -81,7 +128,24 @@ bool JitArm64::init()
     if (m_init_attempted) return false;
     m_init_attempted = true;
 
-#if defined(__APPLE__)
+#if defined(__SWITCH__)
+    // libnx maps the buffer twice (RW for writing, RX for executing). This
+    // needs the JIT syscalls that the homebrew loader hints under Atmosphere;
+    // without them the shim fails and the interpreter is used instead.
+    SwitchJitInfo info;
+    unsigned rc = 0;
+    if (switch_jit_create(CODE_BUF_SIZE, &info, &rc) != 0) {
+        ErrorLog("[JIT] jitCreate failed (0x%x); using the PowerPC interpreter.\n", rc);
+        return false;
+    }
+    m_write_buf = (uint8_t *)info.rw;
+    m_code_buf  = (uint8_t *)info.rx;
+    m_dual_map  = true;
+    g_rx_delta  = (intptr_t)m_code_buf - (intptr_t)m_write_buf;
+    InfoLog("[JIT] Switch PowerPC recompiler enabled (%s, %zu MB code cache).\n",
+            info.always_mapped ? "CodeMemory" : "SetProcessMemoryPermission",
+            CODE_BUF_SIZE >> 20);
+#elif defined(__APPLE__)
     void *p = mmap(nullptr, CODE_BUF_SIZE,
                    PROT_READ | PROT_WRITE | PROT_EXEC,
                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_JIT, -1, 0);
@@ -142,7 +206,7 @@ bool JitArm64::init()
     tbl[FN_JIT_FRSQRTE]  = (void *)&jit_frsqrte;
     tbl[FN_PPC_DISPATCH] = (void *)&ppc_dispatch_opcode;
     tbl[FN_JIT_FRSP]     = (void *)&jit_frsp;
-    g_fn_tbl = m_write_buf;
+    g_fn_tbl = m_write_buf;   // write view: only used to compute relative BL offsets
 
     // Emit call stubs immediately after the table. Each stub is 3 instructions
     // (12 bytes): ADRP X16, #0 + LDR X16, [X16, #i*8] + BR X16. Since both the
@@ -155,8 +219,7 @@ bool JitArm64::init()
         wp[1] = 0xF9400210u | (uint32_t)(i << 10);    // LDR  X16, [X16, #i*8]
         wp[2] = 0xD61F0200u;                           // BR   X16
     }
-    __builtin___clear_cache((char *)m_code_buf,
-                            (char *)m_code_buf + BLOCK_START);
+    sync_code(m_write_buf, BLOCK_START);
     m_code_pos = BLOCK_START;  // blocks start after table + stubs
     return true;
 }
@@ -164,9 +227,15 @@ bool JitArm64::init()
 void JitArm64::shutdown()
 {
     if (m_code_buf) {
+#if defined(__SWITCH__)
+        switch_jit_close();
+        g_rx_delta = 0;
+#else
         munmap(m_code_buf, CODE_BUF_SIZE);
+#endif
         m_code_buf  = nullptr;
         m_write_buf = nullptr;
+        g_fn_tbl    = nullptr;
     }
     m_cache.clear();
     m_code_pos = 0;
@@ -921,6 +990,7 @@ static uint32_t* emit_epilogue_deferred(Arm64Emitter &e, int inst_count,
 
 // Apply all pending fixups for a newly-compiled block (retroactive backpatching).
 // Patches each registered B instruction to tail-call target_arm directly.
+// Both the sites and target_arm are write-view pointers (see to_exec()).
 static size_t apply_fixups(std::unordered_map<uint32_t, std::vector<uint32_t*>> &fixup_map,
                             uint32_t ppc_pc, uint8_t *target_arm)
 {
@@ -930,7 +1000,7 @@ static size_t apply_fixups(std::unordered_map<uint32_t, std::vector<uint32_t*>> 
     for (uint32_t *site : it->second) {
         int off = (int)(((uint32_t*)target_arm - site) * 4);
         *site = 0x14000000u | ((uint32_t)(off / 4) & 0x3FFFFFFu);
-        __builtin___clear_cache((char*)site, (char*)(site + 1));
+        sync_code(site, sizeof(*site));
     }
     fixup_map.erase(it);
     return n;
@@ -3002,9 +3072,9 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
 
                         void *taken_fn = nullptr, *not_taken_fn = nullptr;
                         auto  it = m_cache.find(taken_target);
-                        if (it != m_cache.end()) taken_fn = (void *)it->second.fn;
+                        if (it != m_cache.end()) taken_fn = (void *)to_write((void *)it->second.fn);
                         it = m_cache.find(not_taken_target);
-                        if (it != m_cache.end()) not_taken_fn = (void *)it->second.fn;
+                        if (it != m_cache.end()) not_taken_fn = (void *)to_write((void *)it->second.fn);
 
                         // B.cond_inv skips the taken path; fall through to not-taken
                         uint32_t *nt = e.emit_B_COND_placeholder(a64_cond ^ 1);
@@ -3136,9 +3206,9 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
                 void *taken_fn     = nullptr;
                 void *not_taken_fn = nullptr;
                 auto it = m_cache.find(taken_target);
-                if (it != m_cache.end()) taken_fn = (void *)it->second.fn;
+                if (it != m_cache.end()) taken_fn = (void *)to_write((void *)it->second.fn);
                 it = m_cache.find(not_taken_target);
-                if (it != m_cache.end()) not_taken_fn = (void *)it->second.fn;
+                if (it != m_cache.end()) not_taken_fn = (void *)to_write((void *)it->second.fn);
                 handled = translate_bc(e, op, pc, inst_count, pending_fixups, taken_fn, not_taken_fn);
             }
             terminated = true;
@@ -3152,7 +3222,7 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
             void *target_fn = nullptr;
             if (!lk18) {
                 auto it = m_cache.find(target);
-                if (it != m_cache.end()) target_fn = (void *)it->second.fn;
+                if (it != m_cache.end()) target_fn = (void *)to_write((void *)it->second.fn);
             }
             if (target_fn)
                 emit_epilogue_chained(e, inst_count + 1, pc, target, target_fn);
@@ -3346,9 +3416,9 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
 
                     void *taken_fn = nullptr, *not_taken_fn = nullptr;
                     auto  it = m_cache.find(taken_target);
-                    if (it != m_cache.end()) taken_fn = (void *)it->second.fn;
+                    if (it != m_cache.end()) taken_fn = (void *)to_write((void *)it->second.fn);
                     it = m_cache.find(not_taken_target);
-                    if (it != m_cache.end()) not_taken_fn = (void *)it->second.fn;
+                    if (it != m_cache.end()) not_taken_fn = (void *)to_write((void *)it->second.fn);
 
                     uint32_t *nt = e.emit_B_COND_placeholder(a64_cond ^ 1);
                     if (taken_fn) emit_epilogue_chained(e, inst_count + 2, bc_pc, taken_target, taken_fn);
@@ -3389,6 +3459,10 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
     void *block_start = write_base;
     void *block_end   = e.ptr();
 
+#if defined(__SWITCH__)
+    // Separate RW/RX views from libnx: make the block visible through RX.
+    sync_code(block_start, (size_t)((uint8_t *)block_end - (uint8_t *)block_start));
+#else
     if (!m_dual_map) {
         // If RWX, just flush I-cache
         __builtin___clear_cache((char *)block_start, (char *)block_end);
@@ -3400,6 +3474,7 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
         __builtin___clear_cache((char *)m_code_buf + m_code_pos,
                                 (char *)m_code_buf + m_code_pos + sz);
     }
+#endif
 
     m_code_pos += e.size();
 
@@ -3410,7 +3485,7 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
     blk.start_pc   = start_pc;
     blk.end_pc     = pc;
     blk.inst_count = inst_count;
-    blk.fn         = (void (*)(PPC_REGS *))block_start;
+    blk.fn         = (void (*)(PPC_REGS *))to_exec(block_start);   // callers execute via the RX view
 
     m_stats.blocks_compiled++;
     m_cache[start_pc] = blk;

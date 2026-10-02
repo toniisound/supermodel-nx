@@ -30,6 +30,28 @@
 #include "Supermodel.h"
 #include "SDLIncludes.h"
 
+#ifdef __SWITCH__
+#include "OSD/Switch/SwitchPlatform.h"
+
+// Horizon starts every new thread on its creator's core and never migrates it,
+// so without this the PowerPC, sound and drive boards would all share core 0
+// with the renderer. Pin each emulator thread to a core of its own first.
+struct SwitchThreadStart
+{
+	ThreadStart start;
+	void *param;
+	int core;
+};
+
+static int SwitchThreadTrampoline(void *data)
+{
+	SwitchThreadStart s = *static_cast<SwitchThreadStart *>(data);
+	delete static_cast<SwitchThreadStart *>(data);
+	SwitchPinCurrentThread(s.core);
+	return s.start(s.param);
+}
+#endif
+
 void CThread::Sleep(UINT32 ms)
 {
 	SDL_Delay(ms);
@@ -42,9 +64,19 @@ UINT32 CThread::GetTicks()
 
 CThread* CThread::CreateThread(const std::string &name, ThreadStart start, void* startParam)
 {
+#ifdef __SWITCH__
+	SwitchThreadStart *s = new SwitchThreadStart{ start, startParam, SwitchCoreForThread(name.c_str()) };
+	SDL_Thread *impl = SDL_CreateThread(SwitchThreadTrampoline, name.c_str(), s);
+	if (impl == NULL)
+	{
+		delete s;
+		return NULL;
+	}
+#else
 	SDL_Thread *impl = SDL_CreateThread(start, name.c_str(), startParam);
 	if (impl == NULL)
 		return NULL;
+#endif
 	return new CThread(name, impl);
 }
 

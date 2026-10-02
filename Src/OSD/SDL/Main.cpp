@@ -103,6 +103,9 @@
 #include "Crosshair.h"
 #include "OSD/DefaultConfigFile.h"
 #include "Gui.h"
+#ifdef __SWITCH__
+#include "OSD/Switch/SwitchPlatform.h"
+#endif
 
 
 /******************************************************************************
@@ -306,6 +309,15 @@ static Result CreateGLScreen(bool coreContext, bool quadRendering, const std::st
           SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
       }
   }
+#ifdef __SWITCH__
+  else {
+      // SDL's Switch driver defaults to an OpenGL ES 2 context; the legacy
+      // renderer needs desktop OpenGL with the fixed-function pipeline.
+      SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+      SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+      SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+  }
+#endif
 
   // Set video mode
   s_window = SDL_CreateWindow(caption.c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, *xResPtr, *yResPtr, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | (fullScreen ? SDL_WINDOW_FULLSCREEN : 0));
@@ -2206,6 +2218,12 @@ static ParsedCommandLine ParseCommandLine(int argc, char **argv)
  */
 int main(int argc, char **argv)
 {
+#ifdef __SWITCH__
+  // SD card folders, working directory and bundled config (before anything
+  // reads Supermodel.ini); undone on every return path below.
+  SwitchPlatformInit();
+  struct SwitchShutdownGuard { ~SwitchShutdownGuard() { SwitchPlatformShutdown(); } } switchShutdownGuard;
+#endif
   Title();
   WriteDefaultConfigurationFileIfNotPresent();
 

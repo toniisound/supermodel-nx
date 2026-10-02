@@ -17,6 +17,9 @@
 #include "../Src/OSD/SDL/SDLInputSystem.h"
 #include "../Src/Inputs/Inputs.h"
 #include "Main.h"
+#ifdef __SWITCH__
+#include "../Switch/SwitchPlatform.h"
+#endif
 
 #ifdef _WIN32
     #include "../Src/OSD/Windows/DirectInputSystem.h"
@@ -808,7 +811,12 @@ static float GetDPIScale(SDL_Window* window)
 std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Node& config)
 {
     // Initialize SDL
+#ifdef __SWITCH__
+    // The Joy-Cons / Pro Controller drive the menu (ImGui gamepad navigation).
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
+#else
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+#endif
         std::cerr << "SDL could not initialize! Error: " << SDL_GetError() << std::endl;
         return {};
     }
@@ -825,7 +833,11 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
     SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_INPUT_FOCUS);
 
     // Create SDL window
+#ifdef __SWITCH__
+    SDL_Window* window = SDL_CreateWindow("SuperSetup", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 720, window_flags);
+#else
     SDL_Window* window = SDL_CreateWindow("SuperSetup", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 950, 600, window_flags);
+#endif
     if (!window) {
         std::cerr << "Window could not be created! Error: " << SDL_GetError() << std::endl;
         SDL_Quit();
@@ -843,6 +855,18 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
 
     SDL_GL_MakeCurrent(window, glContext);
     SDL_GL_SetSwapInterval(1); // Enable vsync
+
+#ifdef __SWITCH__
+    // No system libGL: load the GL functions for this context (glad).
+    if (glewInit() != GLEW_OK) {
+        std::cerr << "Unable to load OpenGL functions" << std::endl;
+        SDL_GL_DeleteContext(glContext);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return {};
+    }
+    SwitchAddGamepadMappings();
+#endif
 
     // Setup ImGui context
     IMGUI_CHECKVERSION();
@@ -863,6 +887,12 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
     ImGuiStyle& style = ImGui::GetStyle();
     float scale = GetDPIScale(window);
     //style.ScaleAllSizes(scale);
+#ifdef __SWITCH__
+    // Readable on a TV and on the handheld screen.
+    style.FontScaleMain = 1.5f;
+    style.ScaleAllSizes(1.5f);
+    (void)scale;
+#endif
 
     // Setup Platform/Renderer backends
     ImGui_ImplSDL2_InitForOpenGL(window, glContext);

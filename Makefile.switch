@@ -1,0 +1,244 @@
+#
+# Supermodel for the Nintendo Switch (libnx, standalone .nro)
+#
+# Requirements (devkitPro pacman):
+#   dkp-pacman -S switch-dev switch-sdl2 switch-mesa switch-zlib
+#
+# Build:
+#   make -f Makefile.switch -j$(nproc)
+#   make -f Makefile.switch NXLINK=1      # stdout/stderr to `nxlink -s` on the PC
+#   make -f Makefile.switch NO_JIT=1      # PowerPC interpreter only
+#   make -f Makefile.switch clean
+#
+# Output: build/switch/supermodel.nro -> copy to sdmc:/switch/supermodel/
+# ROMs go in sdmc:/switch/supermodel/ROMs/ (MAME-style zips, e.g. scud.zip).
+#
+
+ifeq ($(strip $(DEVKITPRO)),)
+$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path to>/devkitpro")
+endif
+
+include $(DEVKITPRO)/libnx/switch_rules
+
+#---------------------------------------------------------------------------------
+# App metadata
+#---------------------------------------------------------------------------------
+APP_TITLE   := Supermodel
+APP_AUTHOR  := The Supermodel Team (Switch port)
+APP_VERSION := 0.1.0
+ICON        := $(firstword $(wildcard Switch/icon.jpg) $(LIBNX)/default_icon.jpg)
+
+BUILD       := build/switch
+OUTPUT      := $(BUILD)/supermodel
+ROMFS_DIR   := $(BUILD)/romfs
+
+#---------------------------------------------------------------------------------
+# Options
+#---------------------------------------------------------------------------------
+NXLINK ?= 0
+NO_JIT ?= 0
+DEBUG  ?= 0
+
+#---------------------------------------------------------------------------------
+# Sources
+#---------------------------------------------------------------------------------
+SOURCES_C := \
+	Src/Pkgs/unzip.c \
+	Src/Pkgs/ioapi.c \
+	Src/CPU/68K/Musashi/m68kcpu.c \
+	Src/CPU/68K/Musashi/generated/m68kops.c \
+	Src/CPU/68K/Musashi/generated/m68kopac.c \
+	Src/CPU/68K/Musashi/generated/m68kopdm.c \
+	Src/CPU/68K/Musashi/generated/m68kopnz.c \
+	Src/OSD/Switch/SwitchJit.c \
+	Src/OSD/Switch/glad/src/gl.c
+
+SOURCES_CXX := \
+	Src/CPU/PowerPC/PPCDisasm.cpp \
+	Src/BlockFile.cpp \
+	Src/Model3/93C46.cpp \
+	Src/Util/BitRegister.cpp \
+	Src/Model3/JTAG.cpp \
+	Src/Pkgs/imgui/imgui.cpp \
+	Src/Pkgs/imgui/imgui_draw.cpp \
+	Src/Pkgs/imgui/imgui_tables.cpp \
+	Src/Pkgs/imgui/imgui_widgets.cpp \
+	Src/Pkgs/imgui/imgui_impl_opengl3.cpp \
+	Src/Pkgs/imgui/imgui_impl_sdl2.cpp \
+	Src/Graphics/Legacy3D/Error.cpp \
+	Src/Graphics/Shader.cpp \
+	Src/Graphics/GLSLVersion.cpp \
+	Src/Model3/Real3D.cpp \
+	Src/Graphics/Legacy3D/Legacy3D.cpp \
+	Src/Graphics/Legacy3D/Models.cpp \
+	Src/Graphics/Legacy3D/TextureRefs.cpp \
+	Src/Graphics/New3D/New3D.cpp \
+	Src/Graphics/New3D/Mat4.cpp \
+	Src/Graphics/New3D/Model.cpp \
+	Src/Graphics/New3D/PolyHeader.cpp \
+	Src/Graphics/New3D/TextureBank.cpp \
+	Src/Graphics/New3D/VBO.cpp \
+	Src/Graphics/New3D/Vec.cpp \
+	Src/Graphics/New3D/R3DShader.cpp \
+	Src/Graphics/New3D/R3DFloat.cpp \
+	Src/Graphics/New3D/R3DScrollFog.cpp \
+	Src/Graphics/New3D/R3DFrameBuffers.cpp \
+	Src/Graphics/New3D/GLSLShader.cpp \
+	Src/Graphics/FBO.cpp \
+	Src/Graphics/SuperAA.cpp \
+	Src/Graphics/Render2D.cpp \
+	Src/Model3/TileGen.cpp \
+	Src/Model3/Model3.cpp \
+	Src/CPU/PowerPC/ppc.cpp \
+	Src/Model3/SoundBoard.cpp \
+	Src/Sound/SCSP.cpp \
+	Src/Sound/SCSPDSP.cpp \
+	Src/CPU/68K/68K.cpp \
+	Src/Model3/DSB.cpp \
+	Src/CPU/Z80/Z80.cpp \
+	Src/Model3/IRQ.cpp \
+	Src/Model3/53C810.cpp \
+	Src/Model3/PCI.cpp \
+	Src/Model3/RTC72421.cpp \
+	Src/Model3/DriveBoard/DriveBoard.cpp \
+	Src/Model3/DriveBoard/WheelBoard.cpp \
+	Src/Model3/DriveBoard/JoystickBoard.cpp \
+	Src/Model3/DriveBoard/SkiBoard.cpp \
+	Src/Model3/DriveBoard/BillBoard.cpp \
+	Src/Model3/DriveBoard/Z80CTC.cpp \
+	Src/Model3/MPC10x.cpp \
+	Src/Inputs/Input.cpp \
+	Src/Inputs/Inputs.cpp \
+	Src/Inputs/InputSource.cpp \
+	Src/Inputs/InputSystem.cpp \
+	Src/Inputs/InputTypes.cpp \
+	Src/Inputs/MultiInputSource.cpp \
+	Src/OSD/Outputs.cpp \
+	Src/Sound/MPEG/MpegAudio.cpp \
+	Src/Model3/Crypto.cpp \
+	Src/OSD/Logger.cpp \
+	Src/Util/Format.cpp \
+	Src/Util/NewConfig.cpp \
+	Src/Util/ByteSwap.cpp \
+	Src/Util/ConfigBuilders.cpp \
+	Src/GameLoader.cpp \
+	Src/Pkgs/tinyxml2.cpp \
+	Src/ROMSet.cpp \
+	Src/OSD/SDL/Main.cpp \
+	Src/OSD/SDL/Audio.cpp \
+	Src/OSD/SDL/Thread.cpp \
+	Src/OSD/SDL/SDLInputSystem.cpp \
+	Src/OSD/SDL/Crosshair.cpp \
+	Src/OSD/SDL/Gui.cpp \
+	Src/OSD/Switch/FileSystemPath.cpp \
+	Src/OSD/Switch/SwitchPlatform.cpp \
+	Src/OSD/Switch/SwitchGL.cpp
+
+ifneq ($(strip $(NO_JIT)),1)
+SOURCES_CXX += Src/CPU/PowerPC/Jit/JitArm64.cpp
+endif
+
+OFILES := $(SOURCES_C:%.c=$(BUILD)/obj/%.o) $(SOURCES_CXX:%.cpp=$(BUILD)/obj/%.o)
+DEPS   := $(OFILES:.o=.d)
+
+#---------------------------------------------------------------------------------
+# Flags
+#---------------------------------------------------------------------------------
+PKGCONF := $(firstword $(wildcard $(PORTLIBS)/bin/aarch64-none-elf-pkg-config) pkg-config)
+
+ARCH     := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
+
+# Src/OSD/Switch/include comes first: its GL/glew.h and GL/gl.h replace the
+# system ones with glad.
+INCLUDES := \
+	-ISrc/OSD/Switch/include \
+	-ISrc/OSD/Switch/glad/include \
+	-I. \
+	-ISrc \
+	-ISrc/OSD \
+	-ISrc/OSD/SDL \
+	-ISrc/Pkgs \
+	-ISrc/CPU/68K/Musashi \
+	-ISrc/CPU/68K/Musashi/generated \
+	-I$(PORTLIBS)/include \
+	-I$(PORTLIBS)/include/SDL2 \
+	-I$(LIBNX)/include
+
+DEFINES := -D__SWITCH__ -DSUPERMODEL_OSD_SDL -DLSB_FIRST -DARM -DINLINE=inline \
+	-DPSS_STYLE=1 -DHAVE_ZLIB -DGLEW_STATIC -DNDEBUG
+
+ifneq ($(strip $(NO_JIT)),1)
+DEFINES += -DHAVE_PPC_JIT
+endif
+ifeq ($(strip $(NXLINK)),1)
+DEFINES += -DSWITCH_NXLINK
+endif
+
+ifeq ($(strip $(DEBUG)),1)
+OPT := -O1 -g
+else
+OPT := -O3 -ffast-math -fomit-frame-pointer
+endif
+
+CFLAGS   := $(ARCH) $(OPT) -ffunction-sections -Wall -Wno-unused $(DEFINES) $(INCLUDES) -std=gnu11
+CXXFLAGS := $(ARCH) $(OPT) -ffunction-sections -Wall -Wno-unused $(DEFINES) $(INCLUDES) -std=gnu++17
+
+# ImGui's OpenGL3 back end: use glad instead of its built-in loader, which
+# would dlopen() a libGL that does not exist on the Switch.
+$(BUILD)/obj/Src/Pkgs/imgui/imgui_impl_opengl3.o: CXXFLAGS += -DIMGUI_IMPL_OPENGL_LOADER_CUSTOM -include glad/gl.h
+
+ASFLAGS  := -g $(ARCH)
+LDFLAGS   = -specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(OUTPUT).map
+
+# SDL2 pulls in EGL, Mesa (glapi) and nouveau; zlib is for the ROM zips.
+LIBS     := $(shell $(PKGCONF) --libs sdl2 2>/dev/null)
+ifeq ($(strip $(LIBS)),)
+LIBS     := -lSDL2 -lEGL -lglapi -ldrm_nouveau
+endif
+LIBS     += -lz -lnx -lm
+LIBPATHS := -L$(PORTLIBS)/lib -L$(LIBNX)/lib
+
+NROFLAGS  = --icon=$(ICON) --nacp=$(OUTPUT).nacp --romfsdir=$(ROMFS_DIR)
+
+#---------------------------------------------------------------------------------
+# Rules
+#---------------------------------------------------------------------------------
+.PHONY: all clean romfs
+
+all: $(OUTPUT).nro
+
+$(OUTPUT).nro: $(OUTPUT).elf $(OUTPUT).nacp romfs
+	@elf2nro $(OUTPUT).elf $@ $(NROFLAGS)
+	@echo built ... $(notdir $@)
+
+$(OUTPUT).nacp: Makefile.switch
+	@mkdir -p $(dir $@)
+	@nacptool --create "$(APP_TITLE)" "$(APP_AUTHOR)" "$(APP_VERSION)" $@
+	@echo built ... $(notdir $@)
+
+# Bundled files, copied to the SD card on first launch (SwitchPlatform.cpp).
+romfs:
+	@mkdir -p $(ROMFS_DIR)/Config $(ROMFS_DIR)/Assets
+	@cp -u Config/Switch/Supermodel.ini $(ROMFS_DIR)/Config/Supermodel.ini
+	@cp -u Config/Games.xml Config/Music.xml $(ROMFS_DIR)/Config/
+	@cp -u Assets/p1crosshair.bmp Assets/p2crosshair.bmp $(ROMFS_DIR)/Assets/
+
+$(OUTPUT).elf: $(OFILES)
+	@echo linking $(notdir $@)
+	@$(CXX) $(LDFLAGS) $(OFILES) $(LIBPATHS) $(LIBS) -o $@
+
+$(BUILD)/obj/%.o: %.c
+	@mkdir -p $(dir $@)
+	@echo $<
+	@$(CC) -MMD -MP $(CFLAGS) -c $< -o $@
+
+$(BUILD)/obj/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	@echo $<
+	@$(CXX) -MMD -MP $(CXXFLAGS) -c $< -o $@
+
+clean:
+	@echo clean ...
+	@rm -rf $(BUILD)
+
+-include $(DEPS)

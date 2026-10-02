@@ -111,7 +111,11 @@ private:
     JitBlock *compile(uint32_t pc);
 
     // Code buffer (executable memory region)
+#if defined(__SWITCH__)
+    static constexpr size_t CODE_BUF_SIZE = 64 * 1024 * 1024;  // 64 MB: flush() appends instead of rewinding
+#else
     static constexpr size_t CODE_BUF_SIZE = 16 * 1024 * 1024;  // 16 MB
+#endif
     uint8_t  *m_code_buf   = nullptr;
     uint8_t  *m_write_buf  = nullptr;   // may differ from m_code_buf on W^X systems
     size_t    m_code_pos   = 0;

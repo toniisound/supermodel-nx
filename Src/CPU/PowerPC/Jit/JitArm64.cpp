@@ -246,8 +246,18 @@ void JitArm64::flush()
 {
     m_cache.clear();
     m_fixups.clear();
+#if defined(__SWITCH__)
+    // Keep appending after a flush and only go back to the start of the buffer
+    // when it is full. Code is then rarely rewritten at an address that already
+    // ran, which emulators of the Switch (Ryujinx) need: they keep their own
+    // translation of each address and do not notice code being replaced
+    // through the separate write view. Real hardware is unaffected.
+    if (g_fn_tbl == nullptr || m_code_pos + 128 * 32 * 4 > CODE_BUF_SIZE)
+        m_code_pos = (g_fn_tbl != nullptr) ? BLOCK_START : 0;
+#else
     // Preserve the function pointer table and call stubs at offset 0; blocks restart after.
     m_code_pos = (g_fn_tbl != nullptr) ? BLOCK_START : 0;
+#endif
     memset(m_fast_cache, 0, sizeof(m_fast_cache));
     memset(m_code_pages,  0, sizeof(m_code_pages));
 }

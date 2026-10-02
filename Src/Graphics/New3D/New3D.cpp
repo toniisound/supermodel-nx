@@ -7,13 +7,14 @@
 #include <unordered_map>
 #include "R3DFloat.h"
 #include "Util/BitCast.h"
+#include "OSD/Switch/SwitchGLDebug.h"
 
 #ifdef __SWITCH__
 #include "OSD/Logger.h"
 
 // Switch diagnostics: every 300 frames (~5 s) the log gets what the 3D
 // renderer did (frames, white "block culling" frames, draw calls, vertices,
-// viewports) and any OpenGL errors raised meanwhile. Tells "the game sends
+// viewports); GL errors are reported by SWITCH_GL_CHECK. Tells "the game sends
 // no 3D" apart from "3D is drawn but does not show".
 namespace
 {
@@ -34,17 +35,9 @@ namespace
 		if (st.frames < 300)
 			return;
 
-		char errs[128] = "none";
-		int len = 0;
-		for (int i = 0; i < 8; i++) {
-			GLenum e = glGetError();
-			if (e == GL_NO_ERROR) break;
-			len += snprintf(errs + len, sizeof(errs) - len, "%s0x%04X", len ? " " : "", e);
-		}
-
-		InfoLog("3D: %u frames (%u white, %u without draws), %llu draws/frame, %llu verts/frame, %u viewports; GL errors: %s",
+		InfoLog("3D: %u frames (%u white, %u without draws), %llu draws/frame, %llu verts/frame, %u viewports",
 			st.frames, st.whiteFrames, st.emptyFrames,
-			st.draws / st.frames, st.verts / st.frames, st.lastNodes, errs);
+			st.draws / st.frames, st.verts / st.frames, st.lastNodes);
 		st = Switch3DStats();
 	}
 
@@ -486,6 +479,7 @@ void CNew3D::DisableRenderStates()
 
 void CNew3D::RenderFrame(void)
 {
+	SWITCH_GL_CHECK("3D: start");
 	// Collect async LOS results from the previous frame into m_losBack
 	// before the swap, so they become visible to the CPU via m_losFront
 	CollectLosResults();
@@ -518,6 +512,7 @@ void CNew3D::RenderFrame(void)
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		}
 
+		SWITCH_GL_CHECK("3D: white frame");
 #ifdef __SWITCH__
 		s_3dStats.whiteFrames++;
 		Switch3DEndFrame(0, 0);
@@ -554,11 +549,14 @@ void CNew3D::RenderFrame(void)
 		}
 	}
 
+	SWITCH_GL_CHECK("3D: vertex upload");
 	m_r3dFrameBuffers.SetFBO(Layer::colour);		// colour will draw to all 3 buffers. For regular opaque pixels the transparent layers will be essentially masked
 	glClear(GL_COLOR_BUFFER_BIT);
+	SWITCH_GL_CHECK("3D: bind and clear frame buffer");
 
 	DrawAmbientFog();
 	DrawScrollFog();								// fog layer if applicable must be drawn here
+	SWITCH_GL_CHECK("3D: fog");
 
 	for (int pri = 0; pri <= 3; pri++) {
 
@@ -605,6 +603,7 @@ void CNew3D::RenderFrame(void)
 		}
 	}
 
+	SWITCH_GL_CHECK("3D: scene");
 	m_r3dFrameBuffers.SetFBO(Layer::none);
 
 	if (m_aaTarget) {
@@ -612,6 +611,7 @@ void CNew3D::RenderFrame(void)
 	}
 
 	m_r3dFrameBuffers.Draw();
+	SWITCH_GL_CHECK("3D: composite");
 
 	if (m_aaTarget) {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);

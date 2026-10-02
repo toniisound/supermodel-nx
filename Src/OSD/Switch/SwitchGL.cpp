@@ -19,6 +19,10 @@
 
 #include <GL/glew.h>
 #include <SDL2/SDL.h>
+#include "SwitchGLDebug.h"
+#include "OSD/Logger.h"
+
+#include <cstring>
 
 extern "C" {
 
@@ -40,3 +44,33 @@ const char *glewGetErrorString(unsigned int error)
 }
 
 } // extern "C"
+
+// See SwitchGLDebug.h. Each checkpoint logs its first 3 errors.
+void SwitchGLCheck(const char *where)
+{
+  struct Seen { const char *where; unsigned count; };
+  static Seen seen[64];
+  static unsigned used = 0;
+
+  for (int i = 0; i < 8; i++)
+  {
+    GLenum e = glGetError();
+    if (e == GL_NO_ERROR)
+      return;
+
+    Seen *entry = nullptr;
+    for (unsigned j = 0; j < used; j++)
+      if (seen[j].where == where || strcmp(seen[j].where, where) == 0) { entry = &seen[j]; break; }
+    if (!entry && used < 64)
+    {
+      seen[used] = { where, 0 };
+      entry = &seen[used++];
+    }
+    if (entry && entry->count < 3)
+    {
+      entry->count++;
+      ErrorLog("GL error 0x%04X before checkpoint '%s'%s", e, where,
+               entry->count == 3 ? " (no more reports for this checkpoint)" : "");
+    }
+  }
+}

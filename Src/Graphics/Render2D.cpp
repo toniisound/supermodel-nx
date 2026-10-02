@@ -286,6 +286,7 @@
   */
 
 #include "Render2D.h"
+#include "OSD/Switch/SwitchGLDebug.h"
 
 #include "Supermodel.h"
 #include "Shader.h"
@@ -359,6 +360,7 @@ void CRender2D::BeginFrame(void)
 
 void CRender2D::PreRenderFrame(void)
 {
+	SWITCH_GL_CHECK("2D upload: start");
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, 512);	// skip the non viewable data
 
 	for (int i = 0; i < 2; i++) {
@@ -368,18 +370,21 @@ void CRender2D::PreRenderFrame(void)
 	}
 
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	SWITCH_GL_CHECK("2D upload");
 }
 
 void CRender2D::RenderFrameBottom(void)
 {
 	Setup2D(true);
 	DrawSurface(m_textureIDs[0]);
+	SWITCH_GL_CHECK("2D bottom layer");
 }
 
 void CRender2D::RenderFrameTop(void)
 {
 	Setup2D(false);
 	DrawSurface(m_textureIDs[1]);
+	SWITCH_GL_CHECK("2D top layer");
 }
 
 void CRender2D::EndFrame(void)

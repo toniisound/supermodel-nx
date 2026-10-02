@@ -104,6 +104,7 @@
 #include "OSD/DefaultConfigFile.h"
 #include "Gui.h"
 #include "InitialNvram.h"
+#include "OSD/Switch/SwitchGLDebug.h"
 #ifdef __SWITCH__
 #include "OSD/Switch/SwitchPlatform.h"
 #endif
@@ -870,12 +871,16 @@ bool BeginFrameVideo()
 
 void EndFrameVideo()
 {
+  SWITCH_GL_CHECK("end of frame");
+
   // Show crosshairs for light gun games
   if (videoInputs)
     s_crosshair->Update(currentInputs, videoInputs, xOffset, yOffset, xRes, yRes);
+  SWITCH_GL_CHECK("crosshair");
 
   // Swap the buffers
   SDL_GL_SwapWindow(s_window);
+  SWITCH_GL_CHECK("swap");
 }
 
 

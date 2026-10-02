@@ -3104,7 +3104,8 @@ static bool translate_op59(Arm64Emitter &e, uint32_t op, uint32_t pc)
 
     switch (sub) {
     case 21: FP_SINGLE(LOAD_AB;  e.FADD_D(D0, D0, D1)); return true;                         // fadds
-    case 20: FP_SINGLE(LOAD_AB;  e.FSUB_D(D0, D0, D1)); return true;                         // fsubs
+    case 20:    // fsubs: left to the interpreter, as upstream does (visual corruption reported)
+        return false;
     case 25: FP_SINGLE(LOAD_AC;  e.FMUL_D(D0, D0, D1)); return true;                         // fmuls
     case 18: FP_SINGLE(LOAD_AB;  e.FDIV_D(D0, D0, D1)); return true;                         // fdivs
     case 22: FP_SINGLE(emit_load_fpr(e, D0, rB); e.FSQRT_D(D0, D0)); return true;            // fsqrts

@@ -830,19 +830,21 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
         ImGui::SameLine();
         ImGui::TextDisabled("(+) Back to game list");
 
-        ImGui::SameLine(0.0f, 40.0f);
-        if (ImGui::Checkbox("Only show games found in ROMs folder", &onlyInstalled)) {
-            selectedGameIndex = -1;     // row numbers refer to the other list now
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(%d found)", (int)installed.size());
-
         DrawResolutionPreset(config);
 
         ImGui::Spacing();
 
         // draw the tabbed options
         if (ImGui::BeginTabBar("MyTabBar", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+            if (ImGui::BeginTabItem("General")) {
+                if (ImGui::Checkbox("Only show games found in ROMs folder", &onlyInstalled)) {
+                    selectedGameIndex = -1;     // row numbers refer to the other list now
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%d found)", (int)installed.size());
+                ImGui::EndTabItem();
+                inputs = nullptr;
+            }
             if (ImGui::BeginTabItem("Core")) {
                 UpdateTempValues(config, "Core", true);
                 CreateControls(config, "Core");

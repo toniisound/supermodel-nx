@@ -12,6 +12,7 @@
 
 #include <string>
 #include "../GLSLVersion.h"
+#include "OSD/Logger.h"
 
 namespace New3D {
 
@@ -79,6 +80,9 @@ Result R3DFrameBuffers::CreateFBO(int width, int height)
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);	//created R3DFrameBuffers now disable it
 
+	if (fboStatus != GL_FRAMEBUFFER_COMPLETE)
+		ErrorLog("New3D frame buffer incomplete (status 0x%04X, %dx%d)", fboStatus, width, height);
+
 	return ((CreateFBODepthCopy(width, height) == Result::OKAY) && (fboStatus == GL_FRAMEBUFFER_COMPLETE)) ? Result::OKAY : Result::FAIL;
 }
 
@@ -114,6 +118,9 @@ Result R3DFrameBuffers::CreateFBODepthCopy(int width, int height)
 	auto trans2Status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	if (copyStatus != GL_FRAMEBUFFER_COMPLETE || trans2Status != GL_FRAMEBUFFER_COMPLETE)
+		ErrorLog("New3D depth-copy frame buffers incomplete (status 0x%04X / 0x%04X)", copyStatus, trans2Status);
 
 	return (copyStatus == GL_FRAMEBUFFER_COMPLETE && trans2Status == GL_FRAMEBUFFER_COMPLETE) ? Result::OKAY : Result::FAIL;
 }

@@ -3,6 +3,7 @@
 #include "R3DShaderTriangles.h"
 #include "R3DShaderCommon.h"
 #include "../GLSLVersion.h"
+#include "OSD/Logger.h"
 
 // having 2 sets of shaders to maintain is really less than ideal
 // but hopefully not too many breaking changes at this point
@@ -430,7 +431,7 @@ void R3DShader::PrintShaderResult(GLuint shader)
 		if (length > 0) {
 			std::vector<char> msg(length);
 			glGetShaderInfoLog(shader, length, NULL, msg.data());
-			printf("%s\n", msg.data());
+			ErrorLog("New3D shader failed to compile:\n%s", msg.data());
 		}
 	}
 }
@@ -451,7 +452,7 @@ void R3DShader::PrintProgramResult(GLuint program)
 		//The maxLength includes the NULL character
 		std::vector<GLchar> infoLog(maxLength);
 		glGetProgramInfoLog(program, maxLength, &maxLength, infoLog.data());
-		printf("%s\n", infoLog.data());
+		ErrorLog("New3D shader failed to link:\n%s", infoLog.data());
 	}
 }
 

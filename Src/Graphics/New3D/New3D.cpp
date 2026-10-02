@@ -8,6 +8,50 @@
 #include "R3DFloat.h"
 #include "Util/BitCast.h"
 
+#ifdef __SWITCH__
+#include "OSD/Logger.h"
+
+// Switch diagnostics: every 300 frames (~5 s) the log gets what the 3D
+// renderer did (frames, white "block culling" frames, draw calls, vertices,
+// viewports) and any OpenGL errors raised meanwhile. Tells "the game sends
+// no 3D" apart from "3D is drawn but does not show".
+namespace
+{
+	struct Switch3DStats
+	{
+		unsigned frames = 0, whiteFrames = 0, emptyFrames = 0;
+		unsigned long long draws = 0, verts = 0;
+		unsigned lastNodes = 0;
+	} s_3dStats;
+
+	void Switch3DEndFrame(size_t nodes, unsigned framesDraws)
+	{
+		Switch3DStats &st = s_3dStats;
+		st.frames++;
+		st.lastNodes = (unsigned)nodes;
+		if (framesDraws == 0)
+			st.emptyFrames++;
+		if (st.frames < 300)
+			return;
+
+		char errs[128] = "none";
+		int len = 0;
+		for (int i = 0; i < 8; i++) {
+			GLenum e = glGetError();
+			if (e == GL_NO_ERROR) break;
+			len += snprintf(errs + len, sizeof(errs) - len, "%s0x%04X", len ? " " : "", e);
+		}
+
+		InfoLog("3D: %u frames (%u white, %u without draws), %llu draws/frame, %llu verts/frame, %u viewports; GL errors: %s",
+			st.frames, st.whiteFrames, st.emptyFrames,
+			st.draws / st.frames, st.verts / st.frames, st.lastNodes, errs);
+		st = Switch3DStats();
+	}
+
+	unsigned s_frameDraws = 0;
+}
+#endif
+
 #define MAX_RAM_VERTS 300000
 #define MAX_ROM_VERTS 1500000
 
@@ -385,6 +429,11 @@ bool CNew3D::RenderScene(int priority, bool renderOverlay, Layer layer)
 				
 				m_r3dShader.SetMeshUniforms(&mesh);
 				glDrawArrays(m_primType, mesh.vboOffset, mesh.vertexCount);
+#ifdef __SWITCH__
+				s_frameDraws++;
+				s_3dStats.draws++;
+				s_3dStats.verts += mesh.vertexCount;
+#endif
 			}
 		}
 	}
@@ -469,6 +518,10 @@ void CNew3D::RenderFrame(void)
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		}
 
+#ifdef __SWITCH__
+		s_3dStats.whiteFrames++;
+		Switch3DEndFrame(0, 0);
+#endif
 		return;
 	}
 
@@ -563,6 +616,11 @@ void CNew3D::RenderFrame(void)
 	if (m_aaTarget) {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
+
+#ifdef __SWITCH__
+	Switch3DEndFrame(m_nodes.size(), s_frameDraws);
+	s_frameDraws = 0;
+#endif
 }
 
 void CNew3D::BeginFrame(void)

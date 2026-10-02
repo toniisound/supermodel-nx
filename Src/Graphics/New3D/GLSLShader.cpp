@@ -1,5 +1,6 @@
 #include "GLSLShader.h"
 #include <cstdio>
+#include "OSD/Logger.h"
 
 GLSLShader::GLSLShader() 
 {
@@ -109,7 +110,7 @@ void GLSLShader::PrintShaderInfoLog(GLuint obj)
 	if (infologLength > 0) {
 		char* infoLog = new char[infologLength];
 		glGetShaderInfoLog(obj, infologLength, &charsWritten, infoLog);
-		printf("%s\n", infoLog);
+		if (charsWritten > 0) ErrorLog("Shader compiler: %s", infoLog);
 		delete[] infoLog;
 	}
 }
@@ -124,7 +125,7 @@ void GLSLShader::PrintProgramInfoLog(GLuint obj)
 	if (infologLength > 0) {
 		char* infoLog = new char[infologLength];
 		glGetProgramInfoLog(obj, infologLength, &charsWritten, infoLog);
-		printf("%s\n", infoLog);
+		if (charsWritten > 0) ErrorLog("Shader linker: %s", infoLog);
 		delete[] infoLog;
 	}
 }

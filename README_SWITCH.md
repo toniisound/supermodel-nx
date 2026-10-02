@@ -61,6 +61,9 @@ Empieza con `ShowFrameRate = 1` (ya activado) y prueba primero juegos Step 1.0
 - `PowerPCFrequency = 50` en el `[ Global ]` (o en la sección del juego) baja la
   frecuencia de la CPU emulada; muchos juegos lo toleran.
 - `MultiThreaded = 1` reparte placa base, sonido y placa de control entre los núcleos.
+- `JitNativeFP = 1` (por defecto) traduce también la coma flotante del PowerPC a ARM64.
+  Si un juego se comporta raro (IA, físicas, tiempos), ponlo a `0` en la sección de ese
+  juego, p. ej. `[ daytona2 ]` + `JitNativeFP = 0`.
 
 ## Qué cambia respecto a Libretro-Supermodel
 

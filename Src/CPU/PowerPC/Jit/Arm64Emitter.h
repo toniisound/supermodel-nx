@@ -511,6 +511,7 @@ public:
     void FCVT_D_S(int Dd, int Sn) { emit(0x1E22C000 | (Sn << 5) | Dd); }  // D = (double)S
     void FCVT_S_D(int Sd, int Dn) { emit(0x1E624000 | (Dn << 5) | Sd); }  // S = (float)D
     void FCVTZS_W_D(int Wt, int Dn) { emit(0x1E780000 | (Dn << 5) | Wt); } // W = (int32)D (truncate)
+    void FCVTNS_W_D(int Wt, int Dn) { emit(0x1E600000 | (Dn << 5) | Wt); } // W = (int32)D (nearest, ties to even; saturating)
     void FCVTZS_X_D(int Xt, int Dn) { emit(0x9E780000 | (Dn << 5) | Xt); } // X = sign_extend((int32)D)
 
     // --- FP arithmetic (double precision) ---

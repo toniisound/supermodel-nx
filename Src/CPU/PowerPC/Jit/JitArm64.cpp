@@ -2707,29 +2707,197 @@ static void emit_set_fprf(Arm64Emitter &e, int rD)
 }
 
 // ---------------------------------------------------------------------------
+// Native FP translation (opcodes 59 and 63)
+//
+// Off by default upstream: an earlier version diverged from the interpreter
+// (Harley-Davidson attract AI). This version follows the PowerPC definitions
+// the interpreter implements, op by op:
+//   - FPSCR[FPRF] is written by every arithmetic op and by fcmpu/fcmpo (which
+//     also write FPCC, the same bits), so mffs/mcrfs see the same value.
+//   - mcrfs clears the exception bits it copies; mtfsf/mtfsfi/mtfsb0/mtfsb1
+//     and fctiw in a non-nearest rounding mode go to the interpreter.
+//   - Arithmetic ops run natively only in round-to-nearest (FPSCR[RN] == 0,
+//     what games use); another mode runs the interpreter (runtime check).
+//   - Single precision: double result rounded to float, like the interpreter.
+//   - fnmadd/fnmsub: fused multiply-add then negate (PowerPC rounding of -0).
+//   - Record forms (Rc=1, "fadd." etc.) go to the interpreter.
+// Enabled with ppc_set_jit_native_fp() (config "JitNativeFP").
+// ---------------------------------------------------------------------------
+
+bool g_jit_native_fp = false;
+
+// Set by compile() before each FP op: true when a later instruction of the same
+// block is certain to overwrite FPSCR[FPRF] before anything can read it, so this
+// op's FPRF update would be dead and is skipped.
+static bool s_fprf_dead = false;
+
+// FPSCR[FPRF] update after an arithmetic result is stored in FPR[rD].
+static void emit_fprf(Arm64Emitter &e, int rD)
+{
+    if (!s_fprf_dead)
+        emit_set_fprf(e, rD);
+}
+
+// Ops that overwrite all of FPSCR bits 12-16 (FPRF/FPCC), natively or in the
+// interpreter: arithmetic ops, frsp and fcmpu/fcmpo.
+static bool fp_op_writes_fprf(uint32_t op)
+{
+    int primary = op >> 26;
+    if (primary == 63)
+    {
+        int sub = (op >> 1) & 0x3FF;
+        int lo  = sub & 0x1F;
+        if (lo == 25 || (lo >= 28 && lo <= 31)) return true;   // fmul, fmsub, fmadd, fnmsub, fnmadd
+        switch (sub)
+        {
+        case 18: case 20: case 21: case 22: case 26:            // fdiv fsub fadd fsqrt frsqrte
+        case 12:                                                // frsp
+        case 0: case 32:                                        // fcmpu fcmpo
+            return true;
+        default:
+            return false;
+        }
+    }
+    if (primary == 59)
+    {
+        switch ((op >> 1) & 0x1F)
+        {
+        case 18: case 20: case 21: case 22: case 24: case 25:
+        case 28: case 29: case 30: case 31:
+            return true;
+        default:
+            return false;
+        }
+    }
+    return false;
+}
+
+// Instructions that neither read FPSCR nor can leave the block early.
+static bool op_keeps_fprf(uint32_t op)
+{
+    int primary = op >> 26;
+    switch (primary)
+    {
+    case 7: case 8: case 10: case 11: case 12: case 13: case 14: case 15:  // integer D-form, cmpi
+    case 20: case 21: case 23: case 24: case 25: case 26: case 27:         // rotates, logical imm
+    case 28: case 29:
+        return true;
+    }
+    if (primary >= 32 && primary <= 55)     // integer and FP loads/stores
+        return true;
+    if (primary == 31)
+    {
+        switch ((op >> 1) & 0x3FF)
+        {
+        case 4:     // tw
+        case 20:    // lwarx
+        case 83:    // mfmsr
+        case 146:   // mtmsr
+        case 150:   // stwcx.
+        case 210: case 242: case 595: case 659:   // mtsr, mtsrin, mfsr, mfsrin
+        case 306: case 370: case 566:             // tlbie, tlbia, tlbsync
+        case 339: case 371: case 467:             // mfspr, mftb, mtspr
+        case 470: case 982:                       // dcbi, icbi
+        case 598: case 854:                       // sync, eieio
+            return false;
+        default:
+            return true;
+        }
+    }
+    if (primary == 63)
+    {
+        if (op & 1) return false;
+        int sub = (op >> 1) & 0x3FF;
+        if ((sub & 0x1F) == 23) return true;    // fsel
+        switch (sub)
+        {
+        case 72: case 40: case 264: case 136:   // fmr fneg fabs fnabs
+        case 14: case 15:                       // fctiw fctiwz (write FPSCR bits, never read FPRF)
+            return true;
+        default:
+            return false;
+        }
+    }
+    return false;
+}
+
+// Is FPSCR[FPRF] certainly overwritten by a later instruction of this block
+// (at most `remaining` instructions after `pc`) before it can be read?
+static bool fprf_overwritten_later(uint32_t pc, int remaining)
+{
+    for (int i = 0; i < remaining; i++)
+    {
+        pc += 4;
+        uint32_t op = ppc_read_opcode_at(pc);
+        if (op == 0)
+            return false;
+        if (fp_op_writes_fprf(op))
+            return true;
+        if (!op_keeps_fprf(op))
+            return false;
+    }
+    return false;
+}
+
+// Round-to-nearest check: native code below this runs only when FPSCR[RN] == 0;
+// otherwise the interpreter runs the instruction. Returns the branch to patch.
+static uint32_t *emit_rn_guard_begin(Arm64Emitter &e)
+{
+    e.LDR_W(W0, PPC_PTR, OFF_FPSCR);
+    e.TST_W_BITMASK(W0, 0, 1);                  // FPSCR & 3
+    return e.emit_B_COND_placeholder(A64_NE);
+}
+
+static void emit_rn_guard_end(Arm64Emitter &e, uint32_t *to_slow, uint32_t op, uint32_t pc)
+{
+    uint32_t *to_end = e.emit_B_placeholder();
+    e.patch_B_COND(to_slow, e.ptr());
+    emit_fallback(e, op, pc);
+    e.patch_B(to_end, e.ptr());
+}
+
+// Stores the result of fctiw/fctiwz like the interpreter: W0 = int32 result
+// (saturated, NaN -> 0); D0 = source. Below `low_limit` the interpreter
+// stores the minimum sign-extended (0xFFFFFFFF80000000), otherwise the 32-bit
+// value zero-extended.
+static void emit_store_fctiw_result(Arm64Emitter &e, int rD, double low_limit, bool limit_inclusive)
+{
+    e.STR_X(W0, PPC_PTR, (uint32_t)(OFF_FPR + rD * 8));     // zero-extended (32-bit write)
+    e.MOV_W32(W1, 0x80000000u);
+    e.CMP_W(W0, W1);
+    uint32_t *done1 = e.emit_B_COND_placeholder(A64_NE);
+    uint64_t bits;
+    std::memcpy(&bits, &low_limit, sizeof(bits));
+    e.MOV_X64(W1, bits);
+    e.FMOV_D_X(D1, W1);
+    e.FCMP_D(D0, D1);
+    // Sign-extend when D0 <= limit (inclusive) or D0 < limit.
+    uint32_t *done2 = e.emit_B_COND_placeholder(limit_inclusive ? A64_GT : A64_GE);
+    e.MOV_X64(W1, 0xFFFFFFFF80000000ull);
+    e.STR_X(W1, PPC_PTR, (uint32_t)(OFF_FPR + rD * 8));
+    e.patch_B_COND(done1, e.ptr());
+    e.patch_B_COND(done2, e.ptr());
+}
+
+// ---------------------------------------------------------------------------
 // Opcode 63: floating-point double-precision arithmetic
 // ---------------------------------------------------------------------------
-static bool translate_op63(Arm64Emitter &e, uint32_t op)
+static bool translate_op63(Arm64Emitter &e, uint32_t op, uint32_t pc)
 {
-    // Native FP translation is not yet fully equivalent to the interpreter.
-    // Harley-Davidson's attract-mode AI visibly diverges with it enabled, while
-    // keeping the integer/control/memory JIT and interpreting FP restores the
-    // reference behaviour with ample performance headroom.
-    constexpr bool native_fp_enabled = false;
-    if (!native_fp_enabled) { (void)e; (void)op; return false; }
+    if (!g_jit_native_fp)
+        return false;
+    if (op & 1)                 // record form: CR1 update, leave to the interpreter
+        return false;
 
     int rD  = (op >> 21) & 0x1F;
     int rA  = (op >> 16) & 0x1F;
     int rB  = (op >> 11) & 0x1F;
     int rC  = (op >> 6)  & 0x1F;  // used by fmadd/fmsub family
     int sub = (op >> 1) & 0x3FF;
-    (void)rA;  // some sub-ops don't use rA
 
     // The A-form ops fsel/fmul/fmsub/fmadd/fnmsub/fnmadd encode frC in bits 6-10, which overlap
-    // the 10-bit `sub`. Without collapsing it, only their frC==0 forms matched and every real
-    // fmul/fmadd fell back to the interpreter. Reduce these to their 5-bit opcode so they match
-    // for any frC; the codes {23,25,28..31} collide with no X-form op in the switch below (the
-    // interpreter fills all 32 frC slots for exactly these — see optable63 in ppc.cpp).
+    // the 10-bit `sub`; reduce these to their 5-bit opcode so they match for any frC. The codes
+    // {23,25,28..31} collide with no X-form op (see optable63 in ppc.cpp).
     {
         int lo = sub & 0x1F;
         if (lo == 23 || lo == 25 || (lo >= 28 && lo <= 31))
@@ -2737,7 +2905,7 @@ static bool translate_op63(Arm64Emitter &e, uint32_t op)
     }
 
     switch (sub) {
-    case 72:  // fmr rD, rB  (copy FPR)
+    case 72:  // fmr rD, rB
         emit_load_fpr(e, D0, rB);
         emit_store_fpr(e, D0, rD);
         return true;
@@ -2754,231 +2922,203 @@ static bool translate_op63(Arm64Emitter &e, uint32_t op)
         emit_store_fpr(e, D0, rD);
         return true;
 
-    case 136: // fnabs rD, rB  (force-negative abs)
+    case 136: // fnabs rD, rB
         emit_load_fpr(e, D0, rB);
         e.FABS_D(D0, D0);
         e.FNEG_D(D0, D0);
         emit_store_fpr(e, D0, rD);
         return true;
 
-    case 12:  // frsp rD, rB  — fall back to interpreter (also updates FPSCR[FPRF])
-        return false;
-
-    case 14:  // fctiw rD, rB  (round to integer using FPSCR rounding mode)
-    // We ignore FPSCR rounding mode and truncate (same as fctiwz) — acceptable for game code
-    case 15:  // fctiwz rD, rB  (convert double to int32, sign-extend to 64 bits in FPR)
-    {
+    case 12:  // frsp rD, rB (the interpreter converts without changing the rounding mode)
         emit_load_fpr(e, D0, rB);
-        e.FCVTZS_X_D(W0, D0);                        // X0 = sign-extended (int32)D0
-        e.STR_X(W0, PPC_PTR, OFF_FPR + rD * 8);
+        e.FCVT_S_D(D0, D0);
+        e.FCVT_D_S(D0, D0);
+        emit_store_fpr(e, D0, rD);
+        emit_fprf(e, rD);
+        return true;
+
+    case 14: {  // fctiw rD, rB: current rounding mode; native for round-to-nearest (ties to even)
+        uint32_t *slow = emit_rn_guard_begin(e);
+        emit_load_fpr(e, D0, rB);
+        e.FCVTNS_W_D(W0, D0);
+        emit_store_fctiw_result(e, rD, -2147483648.5, false);
+        emit_rn_guard_end(e, slow, op, pc);
         return true;
     }
 
-    case 21:  // fadd rD, rA, rB
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rB);
-        e.FADD_D(D0, D0, D1);
-        emit_store_fpr(e, D0, rD);
-        emit_set_fprf(e, rD);
+    case 15:    // fctiwz rD, rB: truncate
+        emit_load_fpr(e, D0, rB);
+        e.FCVTZS_W_D(W0, D0);
+        emit_store_fctiw_result(e, rD, -2147483649.0, true);
         return true;
 
-    case 20:  // fsub rD, rA, rB
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rB);
-        e.FSUB_D(D0, D0, D1);
-        emit_store_fpr(e, D0, rD);
-        emit_set_fprf(e, rD);
-        return true;
+#define FP_BINARY(INSN, RX, RY) do {                    \
+        uint32_t *slow = emit_rn_guard_begin(e);        \
+        emit_load_fpr(e, D0, RX);                       \
+        emit_load_fpr(e, D1, RY);                       \
+        e.INSN(D0, D0, D1);                             \
+        emit_store_fpr(e, D0, rD);                      \
+        emit_fprf(e, rD);                               \
+        emit_rn_guard_end(e, slow, op, pc);             \
+    } while (0)
 
-    case 25:  // fmul rD, rA, rC  (note: uses rC not rB!)
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rC);
-        e.FMUL_D(D0, D0, D1);
-        emit_store_fpr(e, D0, rD);
-        emit_set_fprf(e, rD);
-        return true;
+    case 21: FP_BINARY(FADD_D, rA, rB); return true;   // fadd
+    case 20: FP_BINARY(FSUB_D, rA, rB); return true;   // fsub
+    case 25: FP_BINARY(FMUL_D, rA, rC); return true;   // fmul (frC!)
+    case 18: FP_BINARY(FDIV_D, rA, rB); return true;   // fdiv
+#undef FP_BINARY
 
-    case 18:  // fdiv rD, rA, rB
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rB);
-        e.FDIV_D(D0, D0, D1);
-        emit_store_fpr(e, D0, rD);
-        emit_set_fprf(e, rD);
-        return true;
-
-    case 22:  // fsqrt rD, rB
+    case 22: {  // fsqrt rD, rB
+        uint32_t *slow = emit_rn_guard_begin(e);
         emit_load_fpr(e, D0, rB);
         e.FSQRT_D(D0, D0);
         emit_store_fpr(e, D0, rD);
-        emit_set_fprf(e, rD);
+        emit_fprf(e, rD);
+        emit_rn_guard_end(e, slow, op, pc);
         return true;
+    }
 
-    case 29:  // fmadd rD, rA, rC, rB  (rD = rA*rC + rB)
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rC);
-        emit_load_fpr(e, D2, rB);
-        e.FMADD_D(D0, D0, D1, D2);   // D0 = D2 + D0*D1 = rB + rA*rC
-        emit_store_fpr(e, D0, rD);
-        emit_set_fprf(e, rD);
-        return true;
+#define FP_FMA(BODY) do {                               \
+        uint32_t *slow = emit_rn_guard_begin(e);        \
+        emit_load_fpr(e, D0, rA);                       \
+        emit_load_fpr(e, D1, rC);                       \
+        emit_load_fpr(e, D2, rB);                       \
+        BODY;                                           \
+        emit_store_fpr(e, D0, rD);                      \
+        emit_fprf(e, rD);                               \
+        emit_rn_guard_end(e, slow, op, pc);             \
+    } while (0)
 
-    case 28:  // fmsub rD, rA, rC, rB  (rD = rA*rC - rB)
-        // ARM FNMSUB: -(Da - Dn*Dm) = Dn*Dm - Da = rA*rC - rB ✓
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rC);
-        emit_load_fpr(e, D2, rB);
-        e.FNMSUB_D(D0, D0, D1, D2);  // D0*D1 - D2 = rA*rC - rB
-        emit_store_fpr(e, D0, rD);
-        emit_set_fprf(e, rD);
-        return true;
+    case 29: FP_FMA(e.FMADD_D(D0, D0, D1, D2)); return true;                     // fmadd:  a*c + b
+    case 28: FP_FMA(e.FNMSUB_D(D0, D0, D1, D2)); return true;                    // fmsub:  a*c - b
+    case 31: FP_FMA(e.FMADD_D(D0, D0, D1, D2); e.FNEG_D(D0, D0)); return true;   // fnmadd: -(a*c + b)
+    case 30: FP_FMA(e.FNMSUB_D(D0, D0, D1, D2); e.FNEG_D(D0, D0)); return true;  // fnmsub: -(a*c - b)
+#undef FP_FMA
 
-    case 31:  // fnmadd rD, rA, rC, rB  (rD = -(rA*rC + rB))
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rC);
-        emit_load_fpr(e, D2, rB);
-        e.FNMADD_D(D0, D0, D1, D2);  // -(D2 + D0*D1) = -(rB + rA*rC) ✓
-        emit_store_fpr(e, D0, rD);
-        emit_set_fprf(e, rD);
-        return true;
-
-    case 30:  // fnmsub rD, rA, rC, rB  (rD = -(rA*rC - rB) = rB - rA*rC)
-        // ARM FMSUB: Da - Dn*Dm = rB - rA*rC ✓
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rC);
-        emit_load_fpr(e, D2, rB);
-        e.FMSUB_D(D0, D0, D1, D2);   // D2 - D0*D1 = rB - rA*rC
-        emit_store_fpr(e, D0, rD);
-        emit_set_fprf(e, rD);
-        return true;
-
-    case 23: {// fsel frD, frA, frC, frB  (frD = frA >= 0.0 ? frC : frB; NaN → frB)
-        // Load frA first; FCMP_D_ZERO sets GE=true when frA >= 0 and frA is not NaN
+    case 23: {  // fsel frD, frA, frC, frB  (frD = frA >= 0.0 ? frC : frB; NaN -> frB)
         emit_load_fpr(e, D0, rA);
         emit_load_fpr(e, D1, rC);
         emit_load_fpr(e, D2, rB);
         e.FCMP_D_ZERO(D0);
-        e.FCSEL_D(D0, D1, D2, A64_GE);   // D0 = (GE) ? frC : frB
+        e.FCSEL_D(D0, D1, D2, A64_GE);
         emit_store_fpr(e, D0, rD);
         return true;
     }
 
-    case 26: {  // frsqrte frD, frB — reciprocal square root estimate
+    case 26: {  // frsqrte frD, frB
+        uint32_t *slow = emit_rn_guard_begin(e);
         emit_load_fpr(e, D0, rB);
         emit_call(e, (uint64_t)(void *)&jit_frsqrte);
         emit_store_fpr(e, D0, rD);
-        emit_set_fprf(e, rD);
+        emit_fprf(e, rD);
+        emit_rn_guard_end(e, slow, op, pc);
         return true;
     }
 
-    case 583: {  // mffs frD — move FPSCR to FPR (lower 32 bits)
-        // LDR_W zero-extends W0 to 64 bits (ARM64 rule), so STR_X stores
-        // FPSCR in the lower 4 bytes and 0 in the upper 4 bytes.
+    case 583: {  // mffs frD: FPSCR zero-extended into the FPR
         e.LDR_W(W0, PPC_PTR, OFF_FPSCR);
         e.STR_X(W0, PPC_PTR, (uint32_t)(OFF_FPR + rD * 8));
         return true;
     }
 
-    case 711:   // mtfsf FLM, frB — update FPSCR fields from FPR (NOP: JIT doesn't model FPSCR)
-    case 134:   // mtfsfi crfD, IMM — set FPSCR field from immediate (NOP)
-    case 70:    // mtfsb0 crbD — clear FPSCR bit (NOP)
-    case 38:    // mtfsb1 crbD — set FPSCR bit (NOP)
-        return true;
-
-    case 64: {  // mcrfs crfD, crfS — copy FPSCR field to CR field
+    case 64: {  // mcrfs crfD, crfS: copy an FPSCR field to CR, clearing its exception bits
         int crfD = (op >> 23) & 0x7;
         int crfS = (op >> 18) & 0x7;
+        static const uint32_t clear_mask[8] = {
+            0x90000000, 0x0F000000, 0x00F00000, 0x00080000, 0, 0x00000700, 0, 0
+        };
         e.LDR_W(W0, PPC_PTR, OFF_FPSCR);
-        e.UBFM_W(W1, W0, 28 - crfS * 4, 31 - crfS * 4);  // extract 4-bit field to [3:0]
+        e.UBFM_W(W1, W0, 28 - crfS * 4, 31 - crfS * 4);  // field to [3:0]
         e.STRB(W1, PPC_PTR, OFF_CR + crfD);
+        if (clear_mask[crfS])
+        {
+            e.MOV_W32(W2, clear_mask[crfS]);
+            e.BIC_W(W0, W0, W2);
+            e.STR_W(W0, PPC_PTR, OFF_FPSCR);
+        }
         return true;
     }
 
-    case 32:  // fcmpo crD, rA, rB  (ordered FP compare)
-    case 0:   // fcmpu crD, rA, rB  (unordered FP compare)
+    case 32:  // fcmpo crD, rA, rB
+    case 0:   // fcmpu crD, rA, rB
     {
         int crfD = (op >> 23) & 0x7;
         emit_load_fpr(e, D0, rA);
         emit_load_fpr(e, D1, rB);
-        e.FCMP_D(D0, D1);            // sets NZCV: N=LT, Z=EQ, C=!LT (ordered), V=unordered
-        // Build PPC CR field: bit3=LT, bit2=GT, bit1=EQ, bit0=FU (unordered)
-        e.CSET_W(W0, A64_MI);        // W0 = LT
-        e.CSET_W(W1, A64_GT);        // W1 = GT
-        e.CSET_W(W2, A64_EQ);        // W2 = EQ
-        e.CSET_W(W3, A64_VS);        // W3 = FU (unordered)
-        e.ORR_W_LSL(W1, W3, W1, 2);  // W1 = FU | (GT<<2)
-        e.ORR_W_LSL(W0, W1, W0, 3);  // W0 = (FU|GT<<2) | (LT<<3)
-        e.ORR_W_LSL(W0, W0, W2, 1);  // W0 |= EQ<<1
+        e.FCMP_D(D0, D1);            // N=LT, Z=EQ, V=unordered
+        // CR field: bit3=LT, bit2=GT, bit1=EQ, bit0=FU (unordered)
+        e.CSET_W(W0, A64_MI);
+        e.CSET_W(W1, A64_GT);
+        e.CSET_W(W2, A64_EQ);
+        e.CSET_W(W3, A64_VS);
+        e.ORR_W_LSL(W1, W3, W1, 2);
+        e.ORR_W_LSL(W0, W1, W0, 3);
+        e.ORR_W_LSL(W0, W0, W2, 1);
         e.STRB(W0, PPC_PTR, OFF_CR + crfD);
+        // The interpreter also copies the result to FPSCR[FPCC] (and clears FPRF's C bit).
+        // (VXSNAN/VXVC for signalling NaNs are not set; games don't compare SNaNs.)
+        e.LDR_W(W1, PPC_PTR, OFF_FPSCR);
+        e.MOV_W32(W2, 0x0001F000);
+        e.BIC_W(W1, W1, W2);
+        e.ORR_W_LSL(W1, W1, W0, 12);
+        e.STR_W(W1, PPC_PTR, OFF_FPSCR);
         return true;
     }
 
-    default:
+    default:    // mtfsf, mtfsfi, mtfsb0, mtfsb1 and anything else: interpreter
         return false;
     }
 }
 
 // ---------------------------------------------------------------------------
 // Opcode 59: floating-point single-precision arithmetic
-// Same as op63 but results are rounded to single precision after each op.
+// The double-precision result is rounded to single precision, like the
+// interpreter's (float)(...) cast.
 // ---------------------------------------------------------------------------
-static bool translate_op59(Arm64Emitter &e, uint32_t op)
+static bool translate_op59(Arm64Emitter &e, uint32_t op, uint32_t pc)
 {
-    constexpr bool native_fp_enabled = false;
-    if (!native_fp_enabled) { (void)e; (void)op; return false; }
+    if (!g_jit_native_fp)
+        return false;
+    if (op & 1)
+        return false;
 
     int rD  = (op >> 21) & 0x1F;
     int rA  = (op >> 16) & 0x1F;
     int rB  = (op >> 11) & 0x1F;
     int rC  = (op >> 6)  & 0x1F;
-    // Opcode 59 is entirely A-form (single-precision arithmetic); every XO fits in 5 bits and
-    // there are no X-form ops here, so mask to 5 bits. A 10-bit mask would fold the frC field
-    // into the opcode and make fmuls (and the fmadds family) fall back for any frC != 0.
+    // Opcode 59 is entirely A-form; every XO fits in 5 bits.
     int sub = (op >> 1) & 0x1F;
 
-// Round to single precision, store, then update FPSCR[FPRF] — matches the interpreter, which
-// runs set_fprf after every single-precision arithmetic op. (op59 uses STORE_SP only for
-// arithmetic ops, so baking the FPRF update in here is correct for all of them.)
-#define STORE_SP(Dd, ppc_fpr) do { e.FCVT_S_D(Dd, Dd); e.FCVT_D_S(Dd, Dd); emit_store_fpr(e, Dd, ppc_fpr); emit_set_fprf(e, ppc_fpr); } while(0)
+#define FP_SINGLE(LOADS_AND_OP) do {                    \
+        uint32_t *slow = emit_rn_guard_begin(e);        \
+        LOADS_AND_OP;                                   \
+        e.FCVT_S_D(D0, D0);                             \
+        e.FCVT_D_S(D0, D0);                             \
+        emit_store_fpr(e, D0, rD);                      \
+        emit_fprf(e, rD);                               \
+        emit_rn_guard_end(e, slow, op, pc);             \
+    } while (0)
+#define LOAD_AB  emit_load_fpr(e, D0, rA); emit_load_fpr(e, D1, rB)
+#define LOAD_AC  emit_load_fpr(e, D0, rA); emit_load_fpr(e, D1, rC)
+#define LOAD_ACB emit_load_fpr(e, D0, rA); emit_load_fpr(e, D1, rC); emit_load_fpr(e, D2, rB)
 
     switch (sub) {
-    case 20:  // fsubs rD, rA, rB — interpreter: block-extension causes visual corruption
-        return false;
-
-    case 21:  // fadds rD, rA, rB
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rB);
-        e.FADD_D(D0, D0, D1);
-        STORE_SP(D0, rD);
-        return true;
-
-    case 25:  // fmuls rD, rA, rC
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rC);
-        e.FMUL_D(D0, D0, D1);
-        STORE_SP(D0, rD);
-        return true;
-
-    case 18:  // fdivs rD, rA, rB
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rB);
-        e.FDIV_D(D0, D0, D1);
-        STORE_SP(D0, rD);
-        return true;
-
-    case 22:  // fsqrts rD, rB
-        emit_load_fpr(e, D0, rB);
-        e.FSQRT_D(D0, D0);
-        STORE_SP(D0, rD);
-        return true;
-
-    // fmadds/fmsubs/fnmadds/fnmsubs/fres — interpreter (FMA ops, not yet JIT'd)
-    case 29: case 28: case 31: case 30: case 24:
-        return false;
-
-    default:
+    case 21: FP_SINGLE(LOAD_AB;  e.FADD_D(D0, D0, D1)); return true;                         // fadds
+    case 20: FP_SINGLE(LOAD_AB;  e.FSUB_D(D0, D0, D1)); return true;                         // fsubs
+    case 25: FP_SINGLE(LOAD_AC;  e.FMUL_D(D0, D0, D1)); return true;                         // fmuls
+    case 18: FP_SINGLE(LOAD_AB;  e.FDIV_D(D0, D0, D1)); return true;                         // fdivs
+    case 22: FP_SINGLE(emit_load_fpr(e, D0, rB); e.FSQRT_D(D0, D0)); return true;            // fsqrts
+    case 29: FP_SINGLE(LOAD_ACB; e.FMADD_D(D0, D0, D1, D2)); return true;                    // fmadds
+    case 28: FP_SINGLE(LOAD_ACB; e.FNMSUB_D(D0, D0, D1, D2)); return true;                   // fmsubs
+    case 31: FP_SINGLE(LOAD_ACB; e.FMADD_D(D0, D0, D1, D2); e.FNEG_D(D0, D0)); return true;  // fnmadds
+    case 30: FP_SINGLE(LOAD_ACB; e.FNMSUB_D(D0, D0, D1, D2); e.FNEG_D(D0, D0)); return true; // fnmsubs
+    default:    // fres and anything else: interpreter
         return false;
     }
-#undef STORE_SP
+#undef LOAD_AB
+#undef LOAD_AC
+#undef LOAD_ACB
+#undef FP_SINGLE
 }
 
 // ---------------------------------------------------------------------------
@@ -3189,8 +3329,12 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
         case 55: handled = translate_stfd(e, op, true);  break;  // stfdu
 
         // FP arithmetic
-        case 59: handled = translate_op59(e, op); break;
-        case 63: handled = translate_op63(e, op); break;
+        case 59:
+        case 63:
+            s_fprf_dead = fprf_overwritten_later(pc, MAX_BLOCK_INSTS - inst_count - 1);
+            handled = (primary == 59) ? translate_op59(e, op, pc) : translate_op63(e, op, pc);
+            s_fprf_dead = false;
+            break;
 
         case 17: {
             // sc — system call: interpreter sets ppc.npc to exception handler

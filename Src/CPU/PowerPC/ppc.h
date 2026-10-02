@@ -356,6 +356,7 @@ extern int ppc_get_bus_freq_multipler(void);
 extern int ppc_get_timer_ratio(void);
 extern void ppc_set_timer_ratio(int ratio);
 extern void ppc_set_jit_enabled(bool enabled);
+extern void ppc_set_jit_native_fp(bool enabled);	// JIT translates FP instructions (else interpreter)
 
 // These have been added to support the new Supermodel
 extern void ppc_attach_bus(class IBus *BusPtr);		// must be called first!

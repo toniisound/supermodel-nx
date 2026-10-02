@@ -849,6 +849,20 @@ void ppc_set_jit_enabled(bool enabled)
 	s_ppc_jit_enabled = enabled;
 }
 
+#ifdef HAVE_PPC_JIT
+extern bool g_jit_native_fp;   // JitArm64.cpp
+#endif
+
+void ppc_set_jit_native_fp(bool enabled)
+{
+#ifdef HAVE_PPC_JIT
+	// Read while blocks are compiled: call before emulation starts.
+	g_jit_native_fp = enabled;
+#else
+	(void)enabled;
+#endif
+}
+
 int ppc_get_timer_ratio()
 {
 	return ppc.timer_ratio;

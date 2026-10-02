@@ -2600,6 +2600,8 @@ int main(int argc, char **argv)
 #ifdef HAVE_PPC_JIT
   ppc_set_jit_enabled(s_runtime_config["PowerPCJit"].ValueAsDefault<bool>(true));
   InfoLog("PowerPC recompiler: %s", s_runtime_config["PowerPCJit"].ValueAsDefault<bool>(true) ? "on" : "off (interpreter)");
+  ppc_set_jit_native_fp(s_runtime_config["JitNativeFP"].ValueAsDefault<bool>(true));
+  InfoLog("Recompiler floating point: %s", s_runtime_config["JitNativeFP"].ValueAsDefault<bool>(true) ? "native" : "interpreter");
 #endif
   exitCode = Supermodel(game, &rom_set, Model3, Inputs, Outputs);
 #endif // SUPERMODEL_DEBUGGER

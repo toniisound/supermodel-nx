@@ -93,22 +93,18 @@ ivec2 WrapTexCoords(ivec2 pos, ivec2 coordinate, int level)
 	return newCoord;
 }
 
+// Sizes and positions are never negative, so dividing by 1 << level is a
+// right shift. Written as a shift: a division by a non-constant compiles to a
+// call into a division routine on NVIDIA's Maxwell (the Switch GPU), which is
+// slower and which Ryujinx cannot run ("Shader instruction Jcal").
 ivec2 GetTextureSize(int level, ivec2 size)
 {
-	int mipDivisor = 1 << level;
-
-	return size / mipDivisor;
+	return size >> level;
 }
 
 ivec2 GetTexturePosition(int level, ivec2 pos)
 {
-	int mipDivisor = 1 << level;
-
-	ivec2 retPos;
-	retPos.x = pos.x / mipDivisor;
-	retPos.y = pos.y / mipDivisor;
-
-	return retPos;
+	return pos >> level;
 }
 
 ivec2 GetMicroTexturePos(int id)

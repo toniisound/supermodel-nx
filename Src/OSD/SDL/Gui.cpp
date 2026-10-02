@@ -555,25 +555,8 @@ static void DrawButtonOptions(Util::Config::Node& config, int selectedGameIndex,
         ImGui::EndPopup();
     }
 
-    {
-        const bool disabled = true;
-
-        if (disabled) {
-            ImGui::BeginDisabled(); // Disables interaction
-            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f); // Fade visuals
-        }
-
-        static bool perGameSettings = false;
-        bool perGamesSettingsCopy = perGameSettings;
-        ImGui::Checkbox("Per game settings", &perGamesSettingsCopy);
-
-
-
-        if (disabled) {
-            ImGui::PopStyleVar();
-            ImGui::EndDisabled();
-        }
-    }
+    // (The disabled "Per game settings" placeholder was removed: the top bar
+    // only has Load game / Load Defaults / Exit.)
 }
 
 static std::shared_ptr<CInputs> GetInputSystem(Util::Config::Node& config, SDL_Window* window)
@@ -645,28 +628,10 @@ static Game GetGame(const std::map<std::string, Game>& games, int selectedGameIn
     return game;
 }
 
-static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<std::string, Game>& games, const std::set<std::string>& installed, bool& onlyInstalled, int& selectedGameIndex, bool& exit, bool& saveSettings, SDL_Window* window, std::shared_ptr<CInputs>& inputs, KeyBindState& kb)
+static void DrawGameList(const std::map<std::string, Game>& games, const std::set<std::string>& installed, int& selectedGameIndex, bool& exit, bool focus)
 {
-    ImVec4 clear_color = ImVec4(0.0f, 0.5f, 192/255.f, 1.00f);
-
-    // Start the Dear ImGui frame
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplSDL2_NewFrame();
-    ImGui::NewFrame();
-
-    ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-
-    ImGui::Begin("Custom Window", nullptr, ImGuiWindowFlags_NoTitleBar); // Explicitly set a window name
-
-    if (ImGui::Checkbox("Only show games found in ROMs folder", &onlyInstalled)) {
-        selectedGameIndex = -1;     // row numbers refer to the other list now
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(%d games found)", (int)installed.size());
-
-    ImGui::BeginChild("TableRegion", ImVec2(0.0f, 200.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
+    // Fill the rest of the window with the list.
+    ImGui::BeginChild("TableRegion", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
 
     if (ImGui::BeginTable("Games", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit))
     {
@@ -692,7 +657,15 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
                 ImGui::Text("%s", g.second.title.c_str());
             }
             ImGui::TableSetColumnIndex(1);
+            // Put the controller cursor on the selected game (or the first one).
+            if (focus && (row == selectedGameIndex || (selectedGameIndex < 0 && row == 0))) {
+                ImGui::SetKeyboardFocusHere();
+            }
             if (ImGui::Selectable(g.second.name.c_str(), selectedGameIndex == row, ImGuiSelectableFlags_SpanAllColumns)) {
+                // Pressing A on the game that is already selected starts it.
+                if (selectedGameIndex == row) {
+                    exit = true;
+                }
                 selectedGameIndex = row;
             }
 
@@ -714,121 +687,192 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
     }
 
     ImGui::EndChild();
+}
 
-    // draw button options
-    DrawButtonOptions(config, selectedGameIndex, exit, saveSettings);
+static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<std::string, Game>& games, const std::set<std::string>& installed, bool& onlyInstalled, int& selectedGameIndex, bool& exit, bool& saveSettings, SDL_Window* window, std::shared_ptr<CInputs>& inputs, KeyBindState& kb)
+{
+    ImVec4 clear_color = ImVec4(0.0f, 0.5f, 192/255.f, 1.00f);
 
-    // Don't leave the menu for a game whose ROMs aren't there: say so instead.
-    static std::string missingZip;
-    if (exit && selectedGameIndex >= 0) {
-        missingZip = MissingRomZip(GetGame(games, selectedGameIndex), installed);
-        if (!missingZip.empty()) {
-            exit = false;
-            ImGui::OpenPopup("ROM not found");
-        }
+    // Two screens: the game list (with Load game / Load Defaults / Exit on top)
+    // and the settings, toggled with + on the controller (F1 on a keyboard).
+    static bool showSettings = false;
+    static bool focusPending = true;
+
+    // Start the Dear ImGui frame
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+
+    ImGui::Begin("Custom Window", nullptr, ImGuiWindowFlags_NoTitleBar); // Explicitly set a window name
+
+    bool toggleSettings = false;
+    const bool popupOpen = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+    if (!popupOpen && !kb.waitingForInput &&
+        (ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false) || ImGui::IsKeyPressed(ImGuiKey_F1, false))) {
+        toggleSettings = true;
     }
 
-    if (ImGui::BeginPopupModal("ROM not found", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (!showSettings) {
 
-        ImGui::Text("This game is not on the SD card.");
-        ImGui::Text("Missing file: ROMs/%s", missingZip.c_str());
-        ImGui::Separator();
+        // draw button options
+        DrawButtonOptions(config, selectedGameIndex, exit, saveSettings);
 
-        if (ImGui::Button("OK", ImVec2(120, 0))) {
-            ImGui::CloseCurrentPopup();
+        // Right-aligned hint, also clickable for touch / mouse.
+        const char* hint = "(+) Settings";
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(hint).x);
+        ImGui::TextDisabled("%s", hint);
+        if (ImGui::IsItemClicked()) {
+            toggleSettings = true;
         }
-        ImGui::SetItemDefaultFocus();
 
-        ImGui::EndPopup();
+        // Don't leave the menu for a game whose ROMs aren't there: say so instead.
+        static std::string missingZip;
+        if (exit && selectedGameIndex >= 0) {
+            missingZip = MissingRomZip(GetGame(games, selectedGameIndex), installed);
+            if (!missingZip.empty()) {
+                exit = false;
+                ImGui::OpenPopup("ROM not found");
+            }
+        }
+
+        if (ImGui::BeginPopupModal("ROM not found", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+            ImGui::Text("This game is not on the SD card.");
+            ImGui::Text("Missing file: ROMs/%s", missingZip.c_str());
+            ImGui::Separator();
+
+            if (ImGui::Button("OK", ImVec2(120, 0))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SetItemDefaultFocus();
+
+            ImGui::EndPopup();
+        }
+
+        ImGui::Spacing();
+
+        DrawGameList(games, installed, selectedGameIndex, exit, focusPending);
+        focusPending = false;
     }
+    else {
 
-    // create a space
-    ImGui::Dummy(ImVec2(0.0f, 20.0f));
+        if (focusPending) {
+            ImGui::SetKeyboardFocusHere();
+            focusPending = false;
+        }
+        if (ImGui::Button("Back")) {
+            toggleSettings = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(+) Back to game list");
 
-    // draw the tabbed options
-    if (ImGui::BeginTabBar("MyTabBar", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
-        if (ImGui::BeginTabItem("Core")) {
-            UpdateTempValues(config, "Core", true);
-            CreateControls(config, "Core");
-            UpdateTempValues(config, "Core", false);
-            ImGui::EndTabItem();
-            inputs = nullptr;
+        ImGui::SameLine(0.0f, 40.0f);
+        if (ImGui::Checkbox("Only show games found in ROMs folder", &onlyInstalled)) {
+            selectedGameIndex = -1;     // row numbers refer to the other list now
         }
-        if (ImGui::BeginTabItem("Video")) {
-            UpdateTempValues(config, "Video", true);
-            CreateControls(config, "Video");
-            UpdateTempValues(config, "Video", false);
-            ImGui::EndTabItem();
-            inputs = nullptr;
-        }
-        if (ImGui::BeginTabItem("Audio")) {
-            UpdateTempValues(config, "Sound", true);
-            CreateControls(config, "Sound");
-            UpdateTempValues(config, "Sound", false);
-            ImGui::EndTabItem();
-            inputs = nullptr;
-        }
-        if (ImGui::BeginTabItem("Networking")) {
-            UpdateTempValues(config, "Network", true);
-            CreateControls(config, "Network");
-            UpdateTempValues(config, "Network", false);
-            ImGui::EndTabItem();
-            inputs = nullptr;
-        }
-        if (ImGui::BeginTabItem("Misc")) {
-            UpdateTempValues(config, "Misc", true);
-            CreateControls(config, "Misc");
-            UpdateTempValues(config, "Misc", false);
-            ImGui::EndTabItem();
-            inputs = nullptr;
-        }
-        if (ImGui::BeginTabItem("ForceFeedback")) {
-            UpdateTempValues(config, "ForceFeedback", true);
-            CreateControls(config, "ForceFeedback");
-            UpdateTempValues(config, "ForceFeedback", false);
-            ImGui::EndTabItem();
-            inputs = nullptr;
-        }
-        if (ImGui::BeginTabItem("Sensitivity")) {
-            UpdateTempValues(config, "Sensitivity", true);
-            CreateControls(config, "Sensitivity");
-            UpdateTempValues(config, "Sensitivity", false);
-            if (ImGui::Button("Joystick calibration")) {
-                if (inputs == nullptr) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%d found)", (int)installed.size());
+
+        ImGui::Spacing();
+
+        // draw the tabbed options
+        if (ImGui::BeginTabBar("MyTabBar", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+            if (ImGui::BeginTabItem("Core")) {
+                UpdateTempValues(config, "Core", true);
+                CreateControls(config, "Core");
+                UpdateTempValues(config, "Core", false);
+                ImGui::EndTabItem();
+                inputs = nullptr;
+            }
+            if (ImGui::BeginTabItem("Video")) {
+                UpdateTempValues(config, "Video", true);
+                CreateControls(config, "Video");
+                UpdateTempValues(config, "Video", false);
+                ImGui::EndTabItem();
+                inputs = nullptr;
+            }
+            if (ImGui::BeginTabItem("Audio")) {
+                UpdateTempValues(config, "Sound", true);
+                CreateControls(config, "Sound");
+                UpdateTempValues(config, "Sound", false);
+                ImGui::EndTabItem();
+                inputs = nullptr;
+            }
+            if (ImGui::BeginTabItem("Networking")) {
+                UpdateTempValues(config, "Network", true);
+                CreateControls(config, "Network");
+                UpdateTempValues(config, "Network", false);
+                ImGui::EndTabItem();
+                inputs = nullptr;
+            }
+            if (ImGui::BeginTabItem("Misc")) {
+                UpdateTempValues(config, "Misc", true);
+                CreateControls(config, "Misc");
+                UpdateTempValues(config, "Misc", false);
+                ImGui::EndTabItem();
+                inputs = nullptr;
+            }
+            if (ImGui::BeginTabItem("ForceFeedback")) {
+                UpdateTempValues(config, "ForceFeedback", true);
+                CreateControls(config, "ForceFeedback");
+                UpdateTempValues(config, "ForceFeedback", false);
+                ImGui::EndTabItem();
+                inputs = nullptr;
+            }
+            if (ImGui::BeginTabItem("Sensitivity")) {
+                UpdateTempValues(config, "Sensitivity", true);
+                CreateControls(config, "Sensitivity");
+                UpdateTempValues(config, "Sensitivity", false);
+                if (ImGui::Button("Joystick calibration")) {
                     if (inputs == nullptr) {
-                        inputs = GetInputSystem(config, window);
+                        if (inputs == nullptr) {
+                            inputs = GetInputSystem(config, window);
+                        }
                     }
+                    inputs->CalibrateJoysticks();
+                    inputs->StoreToConfig(&config);
                 }
-                inputs->CalibrateJoysticks();
-                inputs->StoreToConfig(&config);
+                ImGui::EndTabItem();
+                inputs = nullptr;
             }
-            ImGui::EndTabItem();
-            inputs = nullptr;
+            if (ImGui::BeginTabItem("Key bindings")) {
+
+                if (inputs == nullptr) {
+                    inputs = GetInputSystem(config, window);
+                }
+
+                auto inputList = inputs->GetGameInputs(GetGame(games,selectedGameIndex));
+
+                if (ImGui::BeginTable("KeyTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+
+                    ImGui::TableSetupColumn("Group");
+                    ImGui::TableSetupColumn("Action");
+                    ImGui::TableSetupColumn("Keys");
+                    ImGui::TableHeadersRow();
+
+                    AddKeys(config, kb, inputList);
+
+                    ImGui::EndTable();
+                }
+                
+                ImGui::EndTabItem();
+            }
+
+            ImGui::EndTabBar();
         }
-        if (ImGui::BeginTabItem("Key bindings")) {
 
-            if (inputs == nullptr) {
-                inputs = GetInputSystem(config, window);
-            }
+    }
 
-            auto inputList = inputs->GetGameInputs(GetGame(games,selectedGameIndex));
-
-            if (ImGui::BeginTable("KeyTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-
-                ImGui::TableSetupColumn("Group");
-                ImGui::TableSetupColumn("Action");
-                ImGui::TableSetupColumn("Keys");
-                ImGui::TableHeadersRow();
-
-                AddKeys(config, kb, inputList);
-
-                ImGui::EndTable();
-            }
-            
-            ImGui::EndTabItem();
-        }
-
-        ImGui::EndTabBar();
+    if (toggleSettings) {
+        showSettings = !showSettings;
+        focusPending = true;
+        inputs = nullptr;
+        kb.Reset();
     }
 
     ImGui::End(); // Close the window

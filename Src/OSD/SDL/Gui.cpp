@@ -864,6 +864,8 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
                 ImGui::EndTabItem();
                 inputs = nullptr;
             }
+#ifndef __SWITCH__
+            // Switch: only Core, Video and Audio are shown.
             if (ImGui::BeginTabItem("Networking")) {
                 UpdateTempValues(config, "Network", true);
                 CreateControls(config, "Network");
@@ -923,6 +925,8 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
                 
                 ImGui::EndTabItem();
             }
+
+#endif
 
             ImGui::EndTabBar();
         }

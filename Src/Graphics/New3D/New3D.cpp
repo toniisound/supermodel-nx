@@ -42,6 +42,10 @@ namespace
 	}
 
 	unsigned s_frameDraws = 0;
+
+	// DebugSkip3D = 1 in Supermodel.ini: no 3D rendering at all, to find out
+	// whether a problem comes from the 3D or the 2D side.
+	bool s_debugSkip3D = false;
 }
 #endif
 
@@ -91,6 +95,11 @@ CNew3D::CNew3D(const Util::Config::Node &config, const std::string& gameName) :
 
 	m_wideScreen = config["WideScreen"].ValueAs<bool>();
 	m_noWhiteFlash = config["NoWhiteFlash"].ValueAs<bool>();
+#ifdef __SWITCH__
+	s_debugSkip3D = config["DebugSkip3D"].ValueAsDefault<bool>(false);
+	if (s_debugSkip3D)
+		InfoLog("DebugSkip3D: 3D rendering disabled");
+#endif
 
 	m_r3dShader.LoadShader();
 	glUseProgram(0);
@@ -497,6 +506,13 @@ void CNew3D::RenderFrame(void)
 	m_nodes.clear();				// memory will grow during the object life time, that's fine, no need to shrink to fit
 	m_modelMat.Release();			// would hope we wouldn't need this but no harm in checking
 	m_nodeAttribs.Reset();
+
+#ifdef __SWITCH__
+	if (s_debugSkip3D) {
+		Switch3DEndFrame(0, 0);
+		return;
+	}
+#endif
 
 	if (m_blockCulling && !m_noWhiteFlash)		// block culling disables 3D rendering
 	{

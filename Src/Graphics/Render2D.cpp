@@ -293,6 +293,12 @@
 #include "Shaders2D.h" // fragment and vertex shaders
 #include "GLSLVersion.h"
 
+#ifdef __SWITCH__
+// DebugSkip2D = 1 in Supermodel.ini: no 2D (tile layer) rendering at all.
+static bool s_debugSkip2D = false;
+#endif
+
+
 /******************************************************************************
  Frame Display Functions
 ******************************************************************************/
@@ -360,6 +366,9 @@ void CRender2D::BeginFrame(void)
 
 void CRender2D::PreRenderFrame(void)
 {
+#ifdef __SWITCH__
+	if (s_debugSkip2D) return;
+#endif
 	SWITCH_GL_CHECK("2D upload: start");
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, 512);	// skip the non viewable data
 
@@ -375,6 +384,9 @@ void CRender2D::PreRenderFrame(void)
 
 void CRender2D::RenderFrameBottom(void)
 {
+#ifdef __SWITCH__
+	if (s_debugSkip2D) return;
+#endif
 	Setup2D(true);
 	DrawSurface(m_textureIDs[0]);
 	SWITCH_GL_CHECK("2D bottom layer");
@@ -382,6 +394,9 @@ void CRender2D::RenderFrameBottom(void)
 
 void CRender2D::RenderFrameTop(void)
 {
+#ifdef __SWITCH__
+	if (s_debugSkip2D) return;
+#endif
 	Setup2D(false);
 	DrawSurface(m_textureIDs[1]);
 	SWITCH_GL_CHECK("2D top layer");
@@ -465,6 +480,11 @@ CRender2D::CRender2D(const Util::Config::Node& config)
 	: m_config(config),
 	m_vao(0)
 {
+#ifdef __SWITCH__
+	s_debugSkip2D = config["DebugSkip2D"].ValueAsDefault<bool>(false);
+	if (s_debugSkip2D)
+		InfoLog("DebugSkip2D: 2D rendering disabled");
+#endif
 	glGenVertexArrays(1, &m_vao);
 	glBindVertexArray(m_vao);
 	// no states needed since we do it in the shader

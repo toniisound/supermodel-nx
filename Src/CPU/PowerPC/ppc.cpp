@@ -592,6 +592,9 @@ static bool s_ppc_jit_enabled = true;
 static void *s_jit_ram_base = nullptr;
 
 #include "PPCDisasm.h"
+#ifdef __SWITCH__
+#include "OSD/Switch/SwitchProfile.h"
+#endif
 #include "ppc603.c"
 
 /********************************************************************/

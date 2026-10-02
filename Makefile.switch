@@ -138,7 +138,8 @@ SOURCES_CXX := \
 	Src/OSD/libretro/LibretroBlockFileMemory.cpp \
 	Src/OSD/Switch/FileSystemPath.cpp \
 	Src/OSD/Switch/SwitchPlatform.cpp \
-	Src/OSD/Switch/SwitchGL.cpp
+	Src/OSD/Switch/SwitchGL.cpp \
+	Src/OSD/Switch/SwitchProfile.cpp
 
 ifneq ($(strip $(NO_JIT)),1)
 SOURCES_CXX += Src/CPU/PowerPC/Jit/JitArm64.cpp

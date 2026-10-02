@@ -238,6 +238,9 @@
 #include "OSD/Video.h"
 #include "Util/Format.h"
 #include "Util/ByteSwap.h"
+#ifdef __SWITCH__
+#include "OSD/Switch/SwitchProfile.h"
+#endif
 #include <functional>
 #include <set>
 #include <iostream>
@@ -2207,12 +2210,22 @@ void CModel3::RunMainBoardFrame(bool skipRender)
             IRQ.Assert(0x02);       // irq2 is asserted at the start of the last line on system24 (as apposed to the end). Lost world won't work without this, the game soft locks. We assume the same here
         }
 
-        if (!skipRender)
+        if (!skipRender) {
+#ifdef __SWITCH__
+            const uint64_t tileStart = SwitchProfile::NowNs();
             TileGen.DrawLine(i);
+            SwitchProfile::tileGenNs += SwitchProfile::NowNs() - tileStart;
+#else
+            TileGen.DrawLine(i);
+#endif
+        }
         ppc_execute(lineCycles);
     }
 
 	timings.ppcTicks = CThread::GetTicks() - start;
+#ifdef __SWITCH__
+	SwitchProfile::frames++;
+#endif
 }
 
 void CModel3::SyncGPUs(void)

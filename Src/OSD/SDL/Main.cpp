@@ -106,6 +106,9 @@
 #include "InitialNvram.h"
 #include "OSD/Switch/SwitchGLDebug.h"
 #ifdef __SWITCH__
+#include "OSD/Switch/SwitchProfile.h"
+#endif
+#ifdef __SWITCH__
 #include "OSD/Switch/SwitchPlatform.h"
 #endif
 #ifdef HAVE_PPC_JIT
@@ -1445,6 +1448,7 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
                     double(s_timing.snd) / s_timing.n, double(s_timing.drv) / s_timing.n,
                     double(s_timing.frame) / s_timing.n);
           s_timing = SwitchTimingSums();
+          SwitchProfile::Report();
           s_fpsLogCounter = 0;
         }
 #endif

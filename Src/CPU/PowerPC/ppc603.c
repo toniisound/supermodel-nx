@@ -269,6 +269,9 @@ void ppc_reset(void)
 // Caller sets ppc.pc and ppc.npc before calling.
 extern "C" void ppc_dispatch_opcode(UINT32 opcode)
 {
+#ifdef __SWITCH__
+	SwitchProfile::CountFallback(opcode);
+#endif
 	switch(opcode >> 26)
 	{
 		case 19:	optable19[(opcode >> 1) & 0x3ff](opcode); break;
@@ -282,6 +285,9 @@ extern "C" void ppc_dispatch_opcode(UINT32 opcode)
 int ppc_execute(int cycles)
 {
 	UINT32 opcode;
+#ifdef __SWITCH__
+	const uint64_t profileStart = SwitchProfile::NowNs();
+#endif
 
 	ppc.cur_cycles = cycles;
 	ppc.icount = cycles;
@@ -339,6 +345,9 @@ int ppc_execute(int cycles)
 					break;
 				}
 
+#ifdef __SWITCH__
+				SwitchProfile::CountBlockEntry(ppc.npc);
+#endif
 				s_jit_executing = true;
 				blk->fn(&ppc);	// runs block (or chain); updates ppc.pc, ppc.npc, ppc.icount
 				s_jit_executing = false;
@@ -469,5 +478,10 @@ jit_done:
 	ppc.icount = 0;
 	ppc.tb_base_icount = 0;
     ppc.dec_base_icount = 0;
+#ifdef __SWITCH__
+	SwitchProfile::ppcExecNs += SwitchProfile::NowNs() - profileStart;
+	SwitchProfile::ppcExecCalls++;
+	SwitchProfile::ppcCycles += cycles;
+#endif
 	return executed;
 }

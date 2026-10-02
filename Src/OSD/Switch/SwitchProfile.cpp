@@ -30,6 +30,12 @@ namespace SwitchProfile
   uint64_t ppcExecCalls = 0;
   uint64_t ppcCycles = 0;
   uint64_t frames = 0;
+  uint64_t render2DNs = 0;
+  uint64_t render3DNs = 0;
+  uint64_t renderEndNs = 0;
+  uint64_t renderAANs = 0;
+  uint64_t swapNs = 0;
+  uint64_t renderFrames = 0;
 
   namespace
   {
@@ -118,6 +124,14 @@ namespace SwitchProfile
     for (size_t i = 0; i < pcs.size() && i < 6; i++)
       len += snprintf(line + len, sizeof(line) - len, " %08X x%.0f", pcs[i].pc, pcs[i].count / f);
     InfoLog("%s", line);
+
+    if (renderFrames)
+    {
+      const double rf = double(renderFrames);
+      InfoLog("Render per frame (ms): 2D layers %.2f, 3D scene %.2f, end of frame %.2f, copy to screen %.2f, swap %.2f",
+              render2DNs / 1e6 / rf, render3DNs / 1e6 / rf, renderEndNs / 1e6 / rf, renderAANs / 1e6 / rf, swapNs / 1e6 / rf);
+    }
+    render2DNs = render3DNs = renderEndNs = renderAANs = swapNs = renderFrames = 0;
 
     // Reset
     tileGenNs = ppcExecNs = ppcExecCalls = ppcCycles = frames = 0;

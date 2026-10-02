@@ -152,6 +152,12 @@ static void SwitchRebindGL(const char *where)
     ErrorLog("Unable to make the OpenGL context current after %s: %s", where, SDL_GetError());
   else if (glad_glGetString != nullptr && glGetString(GL_VERSION) == nullptr)   // GL functions may not be loaded yet
     ErrorLog("No OpenGL context after %s.", where);
+
+  // The EGL surface may have been rebuilt, which brings back the default swap
+  // interval (1, set by the game list): apply the VSync setting again.
+  const int interval = s_runtime_config["VSync"].ValueAsDefault<bool>(false) ? 1 : 0;
+  if (SDL_GL_SetSwapInterval(interval) != 0)
+    ErrorLog("Unable to set swap interval %d after %s: %s", interval, where, SDL_GetError());
 }
 #endif
 
@@ -942,7 +948,13 @@ void EndFrameVideo()
   SWITCH_GL_CHECK("crosshair");
 
   // Swap the buffers
+#ifdef __SWITCH__
+  const uint64_t swapStart = SwitchProfile::NowNs();
   SDL_GL_SwapWindow(s_window);
+  SwitchProfile::swapNs += SwitchProfile::NowNs() - swapStart;
+#else
+  SDL_GL_SwapWindow(s_window);
+#endif
   SWITCH_GL_CHECK("swap");
 }
 
@@ -2602,6 +2614,9 @@ int main(int argc, char **argv)
   InfoLog("PowerPC recompiler: %s", s_runtime_config["PowerPCJit"].ValueAsDefault<bool>(true) ? "on" : "off (interpreter)");
   ppc_set_jit_native_fp(s_runtime_config["JitNativeFP"].ValueAsDefault<bool>(true));
   InfoLog("Recompiler floating point: %s", s_runtime_config["JitNativeFP"].ValueAsDefault<bool>(true) ? "native" : "interpreter");
+#ifdef __SWITCH__
+  InfoLog("Swap interval: %d (VSync = %d)", SDL_GL_GetSwapInterval(), s_runtime_config["VSync"].ValueAsDefault<bool>(false) ? 1 : 0);
+#endif
 #endif
   exitCode = Supermodel(game, &rom_set, Model3, Inputs, Outputs);
 #endif // SUPERMODEL_DEBUGGER

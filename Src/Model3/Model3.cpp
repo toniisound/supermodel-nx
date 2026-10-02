@@ -2245,6 +2245,28 @@ void CModel3::RenderFrame(void)
   // Call OSD video callbacks
   if (BeginFrameVideo() && gpusReady)
   {
+#ifdef __SWITCH__
+    // Where the render thread's time goes (log: "Render per frame").
+    uint64_t t0 = SwitchProfile::NowNs();
+    TileGen.BeginFrame();
+    GPU.BeginFrame();
+    TileGen.PreRenderFrame();
+    TileGen.RenderFrameBottom();
+    uint64_t t1 = SwitchProfile::NowNs();
+    GPU.RenderFrame();
+    uint64_t t2 = SwitchProfile::NowNs();
+    TileGen.RenderFrameTop();
+    uint64_t t3 = SwitchProfile::NowNs();
+    GPU.EndFrame();
+    TileGen.EndFrame();
+    uint64_t t4 = SwitchProfile::NowNs();
+    m_superAA->Draw();
+    uint64_t t5 = SwitchProfile::NowNs();
+    SwitchProfile::render2DNs += (t1 - t0) + (t3 - t2);
+    SwitchProfile::render3DNs += t2 - t1;
+    SwitchProfile::renderEndNs += t4 - t3;
+    SwitchProfile::renderAANs += t5 - t4;
+#else
     // Render frame
     TileGen.BeginFrame();
     GPU.BeginFrame();
@@ -2255,9 +2277,13 @@ void CModel3::RenderFrame(void)
     GPU.EndFrame();
     TileGen.EndFrame();
     m_superAA->Draw();
+#endif
   }
 
   EndFrameVideo();
+#ifdef __SWITCH__
+  SwitchProfile::renderFrames++;
+#endif
 
   timings.renderTicks = CThread::GetTicks() - start;
 }

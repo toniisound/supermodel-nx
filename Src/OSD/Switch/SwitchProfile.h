@@ -43,6 +43,14 @@ namespace SwitchProfile
   extern uint64_t ppcCycles;      // guest cycles requested
   extern uint64_t frames;
 
+  // Render thread (CModel3::RenderFrame and the buffer swap)
+  extern uint64_t render2DNs;     // tile generator layers
+  extern uint64_t render3DNs;     // 3D scene (New3D RenderFrame)
+  extern uint64_t renderEndNs;    // GPU/TileGen EndFrame
+  extern uint64_t renderAANs;     // final copy to the screen (SuperAA)
+  extern uint64_t swapNs;         // SDL_GL_SwapWindow
+  extern uint64_t renderFrames;
+
   // Interpreter fallbacks from JIT code (ppc_dispatch_opcode)
   void CountFallback(uint32_t opcode);
 

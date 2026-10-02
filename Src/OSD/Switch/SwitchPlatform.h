@@ -45,4 +45,10 @@ void SwitchPinCurrentThread(int core);
 // Picks the core for an emulator thread by its CThread name.
 int SwitchCoreForThread(const char *name);
 
+// Asks the homebrew loader to start this .nro again, with no arguments (so it
+// opens the game list), as soon as the program exits. Used by the "exit game"
+// combo (- and +) when the game was picked in the GUI. Returns false when there
+// is no homebrew loader to do it (e.g. an .nro loaded directly by an emulator).
+bool SwitchRelaunchToMenu(const char *argv0);
+
 #endif // INCLUDED_SWITCHPLATFORM_H

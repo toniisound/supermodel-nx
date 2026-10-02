@@ -998,6 +998,10 @@ static void SuperSleepUntil(const uint64_t target)
  Main Program Loop
 ******************************************************************************/
 
+#ifdef __SWITCH__
+static bool s_exitToGameList = false;   // set by the exit combo (- and +)
+#endif
+
 #ifdef SUPERMODEL_DEBUGGER
 int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *Inputs, COutputs *Outputs, std::shared_ptr<Debugger::CDebugger> Debugger)
 {
@@ -1171,6 +1175,10 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
     {
       // Quit emulator
       quit = true;
+#ifdef __SWITCH__
+      // Back to the game list instead of the Homebrew Menu.
+      s_exitToGameList = true;
+#endif
     }
     else if (Inputs->uiReset->Pressed())
     {
@@ -2597,6 +2605,19 @@ Exit:
     InfoLog("Program terminated due to an error.");
   else
     InfoLog("Program terminated normally.");
+
+#ifdef __SWITCH__
+  // The process exits normally (saving NVRAM, closing everything) and the
+  // homebrew loader starts the .nro again, which opens the game list. Doing it
+  // in-process would mean resetting every emulator global by hand.
+  if (s_exitToGameList && loadGUI)
+  {
+    if (SwitchRelaunchToMenu(argc > 0 ? argv[0] : nullptr))
+      InfoLog("Returning to the game list.");
+    else
+      InfoLog("Cannot return to the game list (no homebrew loader); exiting.");
+  }
+#endif
 
   return exitCode;
 }

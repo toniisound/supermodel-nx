@@ -159,3 +159,18 @@ int SwitchCoreForThread(const char *name)
     return 1;
   return 2;
 }
+
+bool SwitchRelaunchToMenu(const char *argv0)
+{
+    if (!envHasNextLoad())
+        return false;
+
+    // argv[0] is the .nro's own path when started from the Homebrew Menu.
+    std::string path = (argv0 && std::strncmp(argv0, "sdmc:/", 6) == 0) ? argv0 : SWITCH_SUPERMODEL_ROOT "/supermodel.nro";
+    if (!FileExists(path))
+        return false;
+
+    // The loader's argv string starts with the program path, quoted.
+    std::string args = "\"" + path + "\"";
+    return R_SUCCEEDED(envSetNextLoad(path.c_str(), args.c_str()));
+}

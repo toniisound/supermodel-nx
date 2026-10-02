@@ -47,7 +47,7 @@ inicio) para tener toda la RAM. El JIT necesita Atmosphère.
 | R / L | Cambio de marcha arriba / abajo |
 | A B X Y | Botones del juego (VF3: Y defensa, B puñetazo, A patada, X escape) |
 | Click stick izquierdo / derecho | Service / Test |
-| − + + | Salir |
+| − + + | Volver a la lista de juegos (Exit en la lista cierra el programa) |
 | − + R / − + L | Guardar / cargar estado |
 | − + cruceta derecha | Cambiar ranura de estado |
 | − + cruceta abajo | Pausa |

@@ -148,6 +148,9 @@ PKGCONF := $(firstword $(wildcard $(PORTLIBS)/bin/aarch64-none-elf-pkg-config) p
 
 ARCH     := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 
+# MINIZIP_FOPEN_NO_64: newlib has no fopen64/ftello64/fseeko64 (off_t is
+# already 64-bit), so minizip uses the plain functions.
+#
 # Src/OSD/Switch/include comes first: its GL/glew.h and GL/gl.h replace the
 # system ones with glad.
 INCLUDES := \
@@ -165,7 +168,8 @@ INCLUDES := \
 	-I$(LIBNX)/include
 
 DEFINES := -D__SWITCH__ -DSUPERMODEL_OSD_SDL -DLSB_FIRST -DARM -DINLINE=inline \
-	-DPSS_STYLE=1 -DHAVE_ZLIB -DGLEW_STATIC -DNDEBUG
+	-DPSS_STYLE=1 -DHAVE_ZLIB -DGLEW_STATIC -DNDEBUG \
+	-DMINIZIP_FOPEN_NO_64
 
 ifneq ($(strip $(NO_JIT)),1)
 DEFINES += -DHAVE_PPC_JIT

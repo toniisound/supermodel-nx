@@ -24,6 +24,8 @@
 #include <set>
 #ifdef _WIN32
 #include <windows.h>
+#elif defined(__SWITCH__)
+#include <cstdio>   // no syslog on the Switch: system log goes to stderr (nxlink)
 #else
 #include <syslog.h>
 #endif
@@ -352,6 +354,8 @@ void CSystemLogger::DebugLog(const char *fmt, va_list vl)
 
 #ifdef _WIN32
   OutputDebugString(string2);
+#elif defined(__SWITCH__)
+  fputs(string2, stderr);
 #else
   syslog(LOG_DEBUG, "%s", string2);
 #endif
@@ -372,6 +376,8 @@ void CSystemLogger::InfoLog(const char *fmt, va_list vl)
 
 #ifdef _WIN32
   OutputDebugString(string2);
+#elif defined(__SWITCH__)
+  fputs(string2, stderr);
 #else
   syslog(LOG_INFO, "%s", string2);
 #endif
@@ -392,6 +398,8 @@ void CSystemLogger::ErrorLog(const char *fmt, va_list vl)
 
 #ifdef _WIN32
   OutputDebugString(string2);
+#elif defined(__SWITCH__)
+  fputs(string2, stderr);
 #else
   syslog(LOG_ERR, "%s", string2);
 #endif

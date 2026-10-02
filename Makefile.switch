@@ -132,6 +132,8 @@ SOURCES_CXX := \
 	Src/OSD/SDL/SDLInputSystem.cpp \
 	Src/OSD/SDL/Crosshair.cpp \
 	Src/OSD/SDL/Gui.cpp \
+	Src/OSD/SDL/InitialNvram.cpp \
+	Src/OSD/libretro/LibretroBlockFileMemory.cpp \
 	Src/OSD/Switch/FileSystemPath.cpp \
 	Src/OSD/Switch/SwitchPlatform.cpp \
 	Src/OSD/Switch/SwitchGL.cpp

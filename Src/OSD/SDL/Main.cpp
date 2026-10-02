@@ -103,6 +103,7 @@
 #include "Crosshair.h"
 #include "OSD/DefaultConfigFile.h"
 #include "Gui.h"
+#include "InitialNvram.h"
 #ifdef __SWITCH__
 #include "OSD/Switch/SwitchPlatform.h"
 #endif
@@ -800,7 +801,8 @@ static void SaveNVRAM(IEmulator *Model3)
   InfoLog("Saved NVRAM to '%s'.", file_path.c_str());
 }
 
-static void LoadNVRAM(IEmulator *Model3)
+// Returns true if a saved NVRAM file was loaded.
+static bool LoadNVRAM(IEmulator *Model3)
 {
   CBlockFile  NVRAM;
 
@@ -811,13 +813,13 @@ static void LoadNVRAM(IEmulator *Model3)
   if (Result::OKAY != NVRAM.Load(file_path))
   {
     //ErrorLog("Unable to restore NVRAM from '%s'.", filePath);
-    return;
+    return false;
   }
 
   if (Result::OKAY != NVRAM.FindBlock("Supermodel NVRAM State"))
   {
     ErrorLog("'%s' does not appear to be a valid NVRAM file.", file_path.c_str());
-    return;
+    return false;
   }
 
   int32_t fileVersion;
@@ -825,13 +827,14 @@ static void LoadNVRAM(IEmulator *Model3)
   if (fileVersion != NVRAM_FILE_VERSION)
   {
     ErrorLog("'%s' is incompatible with this version of Supermodel.", file_path.c_str());
-    return;
+    return false;
   }
 
   // Load
   Model3->LoadNVRAM(&NVRAM);
   NVRAM.Close();
   InfoLog("Loaded NVRAM from '%s'.", file_path.c_str());
+  return true;
 }
 
 
@@ -954,8 +957,10 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
   // Customized music for games with MPEG boards
   MpegDec::LoadCustomTracks(s_musicXMLFilePath, game);
 
-  // Load NVRAM
-  LoadNVRAM(Model3);
+  // Load NVRAM. A game without one gets a factory NVRAM set up for
+  // single-cabinet play (no link), like the libretro core does.
+  if (!LoadNVRAM(Model3) && s_runtime_config["InitialNvramSetup"].ValueAsDefault<bool>(true))
+    ApplyInitialNvram(Model3, NVRAM_FILE_VERSION);
 
   // Set the video mode
   char baseTitleStr[128];
@@ -1515,6 +1520,7 @@ Util::Config::Node DefaultConfig()
   // CModel3
   config.Set("PowerPCFrequency", 0u, "Core", 0u, 200u);
   config.Set("MultiThreaded", true,"Core");
+  config.Set("InitialNvramSetup", true, "Core");   // offline NVRAM for games without one
 #ifdef HAVE_PPC_JIT
   config.Set("PowerPCJit", true, "Core");     // ARM64 recompiler; 0 = interpreter
 #endif

@@ -3509,13 +3509,19 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
             m_code_pages[p & (CODE_PAGE_COUNT - 1)] = 1;
     }
 
-    // Apply retroactive fixups: patch any sites that were waiting for this block
-    m_stats.fixups_applied += apply_fixups(m_fixups, start_pc, (uint8_t *)block_start);
-    // Register deferred fixups from this block for future backpatching
+    // Register deferred fixups from this block for future backpatching, then
+    // apply every fixup waiting for this block. The order matters: a block
+    // that branches back to its own start (a polling loop) registers a fixup
+    // for start_pc, which is only patched if it is already registered here.
+    // Otherwise each loop iteration returned to the C++ dispatch loop; in
+    // Daytona 2 that was ~550,000 round trips per frame, most of the CPU time.
+    // The chained epilogue still leaves the loop when icount runs out or an
+    // interrupt is pending.
     for (auto &p : pending_fixups) {
         m_fixups[p.first].push_back(p.second);
         m_stats.fixups_registered++;
     }
+    m_stats.fixups_applied += apply_fixups(m_fixups, start_pc, (uint8_t *)block_start);
 
     return &m_cache[start_pc];
 }

@@ -29,6 +29,8 @@ void VBO::BufferSubData(GLintptr offset, GLsizeiptr size, const GLvoid* data)
 
 void VBO::UpdateDynamic(GLintptr offset, GLsizeiptr size, const GLvoid* data)
 {
+	if (size <= 0)
+		return;		// nothing to upload; mapping an empty range is a GL error
 #ifdef SWITCH_SAFE_VBO
 	// Testing in Ryujinx (make RYUJINX=1): a plain synchronized upload, in case
 	// the emulator misses vertex data written through an unsynchronized mapping.

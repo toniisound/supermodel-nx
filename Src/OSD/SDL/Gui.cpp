@@ -636,6 +636,7 @@ static const ResolutionPreset s_resolutionPresets[] = {
     { "1280x720 (best quality)",          true,  1280, 720 },
     { "960x540 (faster, 3D at 720x540)",  false,  960, 540 },
     { "854x480 (fastest, 3D at 640x480)", false,  854, 480 },
+    { "1924x768 (Supermodel PC default)", false, 1924, 768 },
 };
 
 static void DrawResolutionPreset(Util::Config::Node& config)

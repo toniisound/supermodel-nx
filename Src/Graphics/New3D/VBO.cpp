@@ -29,6 +29,12 @@ void VBO::BufferSubData(GLintptr offset, GLsizeiptr size, const GLvoid* data)
 
 void VBO::UpdateDynamic(GLintptr offset, GLsizeiptr size, const GLvoid* data)
 {
+#ifdef SWITCH_SAFE_VBO
+	// Testing in Ryujinx (make RYUJINX=1): a plain synchronized upload, in case
+	// the emulator misses vertex data written through an unsynchronized mapping.
+	glBufferSubData(m_target, offset, size, data);
+	return;
+#endif
 	// GL_MAP_UNSYNCHRONIZED_BIT: skip driver GPU sync — safe because the caller
 	// double-buffers the region (writes to slot N while GPU reads slot N-1).
 	// GL_MAP_INVALIDATE_RANGE_BIT: allow driver to return new backing memory.

@@ -9,6 +9,7 @@
 #   make -f Makefile.switch NXLINK=1      # stdout/stderr to `nxlink -s` on the PC
 #   make -f Makefile.switch NO_JIT=1      # PowerPC interpreter only
 #   make -f Makefile.switch DEPTH24=1     # 24-bit depth buffer, for Ryujinx
+#   make -f Makefile.switch RYUJINX=1     # all Ryujinx workarounds (DEPTH24 + plain vertex uploads)
 #   make -f Makefile.switch clean
 #
 # Output: build/switch/supermodel.nro -> copy to sdmc:/switch/supermodel/
@@ -40,6 +41,7 @@ NXLINK ?= 0
 NO_JIT ?= 0
 DEBUG  ?= 0
 DEPTH24 ?= 0
+RYUJINX ?= 0
 
 #---------------------------------------------------------------------------------
 # Sources
@@ -181,6 +183,11 @@ DEFINES += -DHAVE_PPC_JIT
 endif
 ifeq ($(strip $(NXLINK)),1)
 DEFINES += -DSWITCH_NXLINK
+endif
+# RYUJINX=1: everything that helps when testing in Ryujinx (not for hardware)
+ifeq ($(strip $(RYUJINX)),1)
+DEPTH24 := 1
+DEFINES += -DSWITCH_SAFE_VBO
 endif
 ifeq ($(strip $(DEPTH24)),1)
 DEFINES += -DSWITCH_DEPTH24

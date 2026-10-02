@@ -8,6 +8,7 @@
 #   make -f Makefile.switch -j$(nproc)
 #   make -f Makefile.switch NXLINK=1      # stdout/stderr to `nxlink -s` on the PC
 #   make -f Makefile.switch NO_JIT=1      # PowerPC interpreter only
+#   make -f Makefile.switch DEPTH24=1     # 24-bit depth buffer, for Ryujinx
 #   make -f Makefile.switch clean
 #
 # Output: build/switch/supermodel.nro -> copy to sdmc:/switch/supermodel/
@@ -38,6 +39,7 @@ ROMFS_DIR   := $(BUILD)/romfs
 NXLINK ?= 0
 NO_JIT ?= 0
 DEBUG  ?= 0
+DEPTH24 ?= 0
 
 #---------------------------------------------------------------------------------
 # Sources
@@ -177,6 +179,9 @@ DEFINES += -DHAVE_PPC_JIT
 endif
 ifeq ($(strip $(NXLINK)),1)
 DEFINES += -DSWITCH_NXLINK
+endif
+ifeq ($(strip $(DEPTH24)),1)
+DEFINES += -DSWITCH_DEPTH24
 endif
 
 ifeq ($(strip $(DEBUG)),1)

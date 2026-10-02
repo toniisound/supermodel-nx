@@ -1732,8 +1732,15 @@ void CNew3D::CollectLosResults()
 		glBindBuffer(GL_PIXEL_PACK_BUFFER, m_losPBO[i]);
 		float* ptr = (float*)glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, 8, GL_MAP_READ_BIT);
 		if (ptr) {
+#ifdef SWITCH_DEPTH24
+			// GL_UNSIGNED_INT_24_8: depth in the top 24 bits, stencil in the low 8
+			GLuint packed = *reinterpret_cast<GLuint*>(ptr);
+			GLubyte stencilVal = GLubyte(packed & 0xFF);
+			float zVal = (float(packed >> 8) / 16777215.0f) / NEAR_PLANE;
+#else
 			GLubyte stencilVal = Util::FloatAsInt32(ptr[1]);
 			float zVal = ptr[0] / NEAR_PLANE;
+#endif
 			stencilVal &= 0x80;
 			auto zValP = reinterpret_cast<unsigned char*>(&zVal);
 			if (stencilVal == 0) zValP[0] |= 1;
@@ -1758,15 +1765,26 @@ bool CNew3D::ProcessLos(int priority)
 				if (m_losPBO[priority]) {
 					// Async read: result collected at start of next frame via CollectLosResults()
 					glBindBuffer(GL_PIXEL_PACK_BUFFER, m_losPBO[priority]);
+#ifdef SWITCH_DEPTH24
+					glReadPixels(losX, losY, 1, 1, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, 0);
+#else
 					glReadPixels(losX, losY, 1, 1, GL_DEPTH_STENCIL, GL_FLOAT_32_UNSIGNED_INT_24_8_REV, 0);
+#endif
 					glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 					m_losPendingRead[priority] = true;
 				} else {
 					// Fallback: synchronous read
+#ifdef SWITCH_DEPTH24
+					GLuint packed = 0;
+					glReadPixels(losX, losY, 1, 1, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, &packed);
+					GLubyte stencilVal = GLubyte(packed & 0xFF);
+					float zVal = (float(packed >> 8) / 16777215.0f) / NEAR_PLANE;
+#else
 					float range[2];
 					glReadPixels(losX, losY, 1, 1, GL_DEPTH_STENCIL, GL_FLOAT_32_UNSIGNED_INT_24_8_REV, range);
 					GLubyte stencilVal = Util::FloatAsInt32(range[1]);
 					float zVal = range[0] / NEAR_PLANE;
+#endif
 					stencilVal &= 0x80;
 					auto zValP = reinterpret_cast<unsigned char*>(&zVal);
 					if (stencilVal == 0) zValP[0] |= 1;

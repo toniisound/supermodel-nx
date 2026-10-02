@@ -1,4 +1,15 @@
 #include "R3DFrameBuffers.h"
+
+// Depth/stencil format of the 3D frame buffers. SWITCH_DEPTH24 (make
+// DEPTH24=1) selects 24-bit fixed point for testing in Ryujinx, which cannot
+// sample the 32-bit float depth-stencil format nouveau uses to copy it. It
+// costs depth precision in the distance; the real Switch handles 32F.
+#ifdef SWITCH_DEPTH24
+#define R3D_DEPTH_STENCIL_FORMAT GL_DEPTH24_STENCIL8
+#else
+#define R3D_DEPTH_STENCIL_FORMAT GL_DEPTH32F_STENCIL8
+#endif
+
 #include <string>
 #include "../GLSLVersion.h"
 
@@ -60,7 +71,7 @@ Result R3DFrameBuffers::CreateFBO(int width, int height)
 	// depth/stencil attachment
 	glGenRenderbuffers(1, &m_renderBufferID);
 	glBindRenderbuffer(GL_RENDERBUFFER, m_renderBufferID);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH32F_STENCIL8, width, height);
+	glRenderbufferStorage(GL_RENDERBUFFER, R3D_DEPTH_STENCIL_FORMAT, width, height);
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_renderBufferID);
 
 	// check setup was successful
@@ -79,7 +90,7 @@ Result R3DFrameBuffers::CreateFBODepthCopy(int width, int height)
 
 	glGenRenderbuffers(1, &m_renderBufferIDCopy);
 	glBindRenderbuffer(GL_RENDERBUFFER, m_renderBufferIDCopy);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH32F_STENCIL8, width, height);
+	glRenderbufferStorage(GL_RENDERBUFFER, R3D_DEPTH_STENCIL_FORMAT, width, height);
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_renderBufferIDCopy);
 
 	// This framebuffer intentionally has no colour attachment. In a core

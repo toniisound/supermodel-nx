@@ -609,6 +609,64 @@ static std::string MissingRomZip(const Game& game, const std::set<std::string>& 
     return {};
 }
 
+// Config::Node::Set() replaces the value, which drops the value range the
+// settings tabs use to draw the control: keep it.
+template <typename T>
+static void SetKeepingRange(Util::Config::Node& config, const char* key, const T& value)
+{
+    std::shared_ptr<Util::ValueRange> range;
+    if (Util::Config::Node* node = config.TryGet(key)) {
+        if (auto v = node->GetValue())
+            range = v->GetValueRange();
+    }
+    config.Set(key, value);
+    if (range) {
+        if (Util::Config::Node* node = config.TryGet(key)) {
+            if (auto v = node->GetValue())
+                v->SetValueRange(range);
+        }
+    }
+}
+
+// Resolution presets: the window size is what the 3D scene is drawn at; the
+// Switch scales the window to the whole screen. A 16:9 window keeps the 4:3
+// game area in proportion (black bars at the sides).
+struct ResolutionPreset { const char* label; bool fullScreen; unsigned x, y; };
+static const ResolutionPreset s_resolutionPresets[] = {
+    { "1280x720 (best quality)",          true,  1280, 720 },
+    { "960x540 (faster, 3D at 720x540)",  false,  960, 540 },
+};
+
+static void DrawResolutionPreset(Util::Config::Node& config)
+{
+    const unsigned x = config["XResolution"].ValueAs<unsigned>();
+    const unsigned y = config["YResolution"].ValueAs<unsigned>();
+    const int count = (int)(sizeof(s_resolutionPresets) / sizeof(s_resolutionPresets[0]));
+    int current = -1;
+    for (int i = 0; i < count; i++) {
+        if (s_resolutionPresets[i].x == x && s_resolutionPresets[i].y == y)
+            current = i;
+    }
+
+    char other[64];
+    snprintf(other, sizeof(other), "%ux%u (custom)", x, y);
+    const char* preview = current >= 0 ? s_resolutionPresets[current].label : other;
+
+    ImGui::SetNextItemWidth(ImGui::CalcTextSize("960x540 (faster, 3D at 720x540)").x + 60.0f);
+    if (ImGui::BeginCombo("Resolution", preview)) {
+        for (int i = 0; i < count; i++) {
+            if (ImGui::Selectable(s_resolutionPresets[i].label, i == current)) {
+                SetKeepingRange(config, "FullScreen", s_resolutionPresets[i].fullScreen);
+                SetKeepingRange(config, "XResolution", s_resolutionPresets[i].x);
+                SetKeepingRange(config, "YResolution", s_resolutionPresets[i].y);
+            }
+            if (i == current)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+}
+
 static Game GetGame(const std::map<std::string, Game>& games, int selectedGameIndex)
 {
     Game game;
@@ -777,6 +835,8 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
         }
         ImGui::SameLine();
         ImGui::TextDisabled("(%d found)", (int)installed.size());
+
+        DrawResolutionPreset(config);
 
         ImGui::Spacing();
 

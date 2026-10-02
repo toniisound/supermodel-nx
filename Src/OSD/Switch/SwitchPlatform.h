@@ -51,4 +51,9 @@ int SwitchCoreForThread(const char *name);
 // is no homebrew loader to do it (e.g. an .nro loaded directly by an emulator).
 bool SwitchRelaunchToMenu(const char *argv0);
 
+// True once each time − and + start being held together on player 1 / the
+// handheld Joy-Cons. Read straight from the HID state, so it works whatever
+// Supermodel.ini maps. Call once per frame.
+bool SwitchExitComboPressed();
+
 #endif // INCLUDED_SWITCHPLATFORM_H

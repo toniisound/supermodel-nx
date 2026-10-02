@@ -174,3 +174,23 @@ bool SwitchRelaunchToMenu(const char *argv0)
     std::string args = "\"" + path + "\"";
     return R_SUCCEEDED(envSetNextLoad(path.c_str(), args.c_str()));
 }
+
+bool SwitchExitComboPressed()
+{
+    // Only reads the pad: padConfigureInput() stays as SDL set it up, so the
+    // number of players SDL supports is not changed.
+    static PadState pad;
+    static bool initialized = false;
+    static bool wasHeld = true;     // ignore a combo already held at start
+    if (!initialized)
+    {
+        padInitializeDefault(&pad);
+        initialized = true;
+    }
+    padUpdate(&pad);
+    const u64 held = padGetButtons(&pad);
+    const bool both = (held & HidNpadButton_Plus) && (held & HidNpadButton_Minus);
+    const bool pressed = both && !wasHeld;
+    wasHeld = both;
+    return pressed;
+}

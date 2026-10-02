@@ -1171,13 +1171,19 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
 #endif // SUPERMODEL_DEBUGGER
 
     // Check UI controls
-    if (Inputs->uiExit->Pressed())
+#ifdef __SWITCH__
+    const bool switchExitCombo = SwitchExitComboPressed();
+#else
+    const bool switchExitCombo = false;
+#endif
+    if (Inputs->uiExit->Pressed() || switchExitCombo)
     {
       // Quit emulator
       quit = true;
 #ifdef __SWITCH__
       // Back to the game list instead of the Homebrew Menu.
       s_exitToGameList = true;
+      InfoLog("Exit combo pressed (%s); leaving the game.", switchExitCombo ? "- and +" : "InputUIExit");
 #endif
     }
     else if (Inputs->uiReset->Pressed())
@@ -1474,6 +1480,7 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
   }
 
   // Make sure all threads are paused before shutting down
+  InfoLog("Stopping emulation...");
   Model3->PauseThreads();
 
 #ifdef SUPERMODEL_DEBUGGER
@@ -1486,12 +1493,15 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
 #endif // SUPERMODEL_DEBUGGER
 
   // Save NVRAM
+  InfoLog("Saving NVRAM...");
   SaveNVRAM(Model3);
 
   // Close audio
+  InfoLog("Closing audio...");
   CloseAudio();
 
   // Shut down renderers
+  InfoLog("Shutting down renderers...");
   delete Render2D;
   delete Render3D;
   delete superAA;
@@ -2592,9 +2602,11 @@ int main(int argc, char **argv)
 #endif
   exitCode = Supermodel(game, &rom_set, Model3, Inputs, Outputs);
 #endif // SUPERMODEL_DEBUGGER
+  InfoLog("Deleting emulator...");
   delete Model3;
 
 Exit:
+  InfoLog("Closing inputs and window...");
   delete Inputs;
   delete Outputs;
   delete s_crosshair;

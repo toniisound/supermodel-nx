@@ -29,4 +29,8 @@ nul
 /msvc/*.opendb
 
 *.md
-!Docs/**/*.mdbuild/switch/
+!Docs/**/*.md
+!/README.md
+
+# Switch build output
+build/

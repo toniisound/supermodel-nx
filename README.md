@@ -1,9 +1,38 @@
-# SuperModel NX (Supermodel para Nintendo Switch)
+<p align="center"><img src="Switch/icon.jpg" width="160" alt="SuperModel NX"></p>
 
-Fork para Nintendo Switch creado por **ToniiSound**. Créditos a los autores originales:
-[Supermodel](https://www.supermodel3.com) (The Supermodel Team: Bart Trzynadlowski, Nik Henson,
-Ian Curtis y colaboradores) y Libretro-Supermodel (libretro y sgiannop). Licencia GPL v3.
-La pestaña **Credits** de la configuración (+) muestra los créditos completos.
+# SuperModel NX
+
+**Emulador de Sega Model 3 para Nintendo Switch** (homebrew `.nro`), fork de
+[Supermodel](https://www.supermodel3.com) creado por **ToniiSound**.
+
+- Recompilador PowerPC → ARM64 (JIT), también para coma flotante.
+- Menú propio: lista de juegos de la SD, logo, ajustes con el botón **+**.
+- − y + a la vez durante un juego: vuelve a la lista de juegos.
+- NVRAM inicial para máquina individual (sin enlace) en los juegos que la necesitan.
+- Selector de resolución (1280x720, 960x540, 854x480) y contador de FPS en pantalla.
+
+> No incluye ROMs. Usa solo copias de juegos que tengas.
+> No está afiliado ni respaldado por Sega ni por Nintendo; Sega, Model 3 y los títulos
+> de los juegos son marcas de sus respectivos dueños.
+
+## Créditos
+
+- **Supermodel**: © 2003-2025 The Supermodel Team (Bart Trzynadlowski, Nik Henson,
+  Ian Curtis y colaboradores). <https://www.supermodel3.com>
+- **Libretro-Supermodel**: [libretro](https://github.com/libretro/Libretro-Supermodel) y
+  [sgiannop](https://github.com/sgiannop/Libretro-Supermodel), base de este fork y del
+  recompilador ARM64.
+- devkitPro y libnx, SDL2, Mesa, glad, Dear ImGui (Omar Cornut), Musashi (Karl Stenerud),
+  zlib y minizip.
+
+La pestaña **Credits** del menú (+) muestra los mismos créditos.
+
+## Licencia
+
+GNU General Public License v3 o posterior: ver [LICENSE](LICENSE). Como fork de
+Supermodel, todo el código de este repositorio se distribuye bajo esa misma licencia.
+
+## Detalles técnicos
 
 Port como `.nro` independiente de Supermodel (emulador de Sega Model 3), basado en
 [Libretro-Supermodel](https://github.com/sgiannop/Libretro-Supermodel) por su
@@ -47,7 +76,7 @@ inicio) para tener toda la RAM. El JIT necesita Atmosphère.
 La parte superior de la lista de juegos muestra el logo que va dentro del `.nro`:
 pon `Assets/logo.bmp` en el proyecto antes de compilar (BMP de 32 bits para tener
 transparencia; se escala a ~120 px de alto manteniendo la proporción, p. ej. 800x120).
-No se lee de la SD. Sin el archivo se escribe "Supermodel".
+No se lee de la SD. Sin el archivo se escribe "SuperModel NX".
 
 ## Controles por defecto
 

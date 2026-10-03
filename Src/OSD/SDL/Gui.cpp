@@ -176,6 +176,12 @@ static void CreateControls(Util::Config::Node& config, const std::string group)
             auto key = it->Key();
             auto val = it->GetValue();
 
+#ifdef __SWITCH__
+            // The resolution is chosen with the "Resolution" selector above the tabs.
+            if (key == "XResolution" || key == "YResolution")
+                continue;
+#endif
+
             if (val) {
 
                 auto vRange = val->GetValueRange();

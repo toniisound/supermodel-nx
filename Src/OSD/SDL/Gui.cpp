@@ -167,6 +167,17 @@ static void UpdateTempValues(Util::Config::Node& config, const std::string group
     }
 }
 
+// Name shown in the settings for a config key. The key itself (the name in
+// Supermodel.ini) never changes.
+static std::string DisplayName(const std::string& key)
+{
+#ifdef __SWITCH__
+    if (key == "ShowFrameRate")   return "Write FPS to Supermodel.log";
+    if (key == "ShowFPSOnScreen") return "Show FPS on screen";
+#endif
+    return key;
+}
+
 static void CreateControls(Util::Config::Node& config, const std::string group)
 {
     for (auto it = config.begin(); it != config.end(); ++it)
@@ -184,6 +195,9 @@ static void CreateControls(Util::Config::Node& config, const std::string group)
             if (group == "Core" && key != "PowerPCFrequency")
                 continue;
 #endif
+
+            // Text shown next to the control ("##key" keeps the ImGui ID unique)
+            const std::string label = DisplayName(key) + "##" + key;
 
             if (val) {
 
@@ -221,7 +235,7 @@ static void CreateControls(Util::Config::Node& config, const std::string group)
                                 sVectorChar.emplace_back(s.c_str());   // store pointer to the data
                             }
 
-                            ImGui::Combo(key.c_str(), &selectedIndex, sVectorChar.data(), (int)sVectorChar.size());
+                            ImGui::Combo(label.c_str(), &selectedIndex, sVectorChar.data(), (int)sVectorChar.size());
                             vRange->tempValue = list[selectedIndex];
                         };
 
@@ -230,7 +244,7 @@ static void CreateControls(Util::Config::Node& config, const std::string group)
                             using T = std::decay_t<decltype(*valuePtr)>;
                             auto min_ = std::get<T>(vRange->GetMin());
                             auto max_ = std::get<T>(vRange->GetMax());
-                            ImGui::SliderScalar(key.c_str(), type, valuePtr, &min_, &max_);
+                            ImGui::SliderScalar(label.c_str(), type, valuePtr, &min_, &max_);
                         };
                         
                         auto ProcessControls = [&](auto valuePtr, ImGuiDataType type)
@@ -242,7 +256,7 @@ static void CreateControls(Util::Config::Node& config, const std::string group)
                                 ProcessCombo(valuePtr);
                             }
                             else {
-                                ImGui::InputScalar(key.c_str(), type, valuePtr);
+                                ImGui::InputScalar(label.c_str(), type, valuePtr);
                             }
                         };
 
@@ -251,7 +265,7 @@ static void CreateControls(Util::Config::Node& config, const std::string group)
                         case 0:             // bool
                         {
                             auto p = std::get_if<bool>(&vRange->tempValue);
-                            ImGui::Checkbox(key.c_str(), p);
+                            ImGui::Checkbox(label.c_str(), p);
                             break;
                         }
                         case 1:             // unsigned
@@ -294,7 +308,7 @@ static void CreateControls(Util::Config::Node& config, const std::string group)
                                     loopCount++;
                                 }
 
-                                ImGui::Combo(key.c_str(), &selectedIndex, sVector.data(), (int)sVector.size());
+                                ImGui::Combo(label.c_str(), &selectedIndex, sVector.data(), (int)sVector.size());
                                 vRange->tempValue = list[selectedIndex];
                             }
                             else {

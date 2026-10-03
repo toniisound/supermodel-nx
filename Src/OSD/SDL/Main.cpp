@@ -103,7 +103,6 @@
 #include "Crosshair.h"
 #include "OSD/DefaultConfigFile.h"
 #include "Gui.h"
-#include "InitialNvram.h"
 #include "OSD/Switch/SwitchGLDebug.h"
 #ifdef __SWITCH__
 #include "OSD/Switch/SwitchProfile.h"
@@ -1144,10 +1143,8 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
   // Customized music for games with MPEG boards
   MpegDec::LoadCustomTracks(s_musicXMLFilePath, game);
 
-  // Load NVRAM. A game without one gets a factory NVRAM set up for
-  // single-cabinet play (no link), like the libretro core does.
-  if (!LoadNVRAM(Model3) && s_runtime_config["InitialNvramSetup"].ValueAsDefault<bool>(true))
-    ApplyInitialNvram(Model3, NVRAM_FILE_VERSION);
+  // Load NVRAM (NVRAM/<game>.nv, provided by the user or saved on exit)
+  LoadNVRAM(Model3);
 
   // Set the video mode
   char baseTitleStr[128];
@@ -1758,7 +1755,6 @@ Util::Config::Node DefaultConfig()
   // CModel3
   config.Set("PowerPCFrequency", 0u, "Core", 0u, 200u);
   config.Set("MultiThreaded", true,"Core");
-  config.Set("InitialNvramSetup", true, "Core");   // offline NVRAM for games without one
 #ifdef HAVE_PPC_JIT
   config.Set("PowerPCJit", true, "Core");     // ARM64 recompiler; 0 = interpreter
 #endif

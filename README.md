@@ -8,7 +8,6 @@
 - PowerPC → ARM64 recompiler (JIT), including floating point.
 - Its own menu: list of the games on the SD card, logo, settings on the **+** button.
 - Press − and + together during a game to go back to the game list.
-- Initial NVRAM set up for a single cabinet (no link) in the games that need it.
 - Resolution selector (1280x720, 960x540, 854x480) and on-screen FPS counter.
 
 > No ROMs are included. Only use copies of games you own.
@@ -74,20 +73,14 @@ overwritten: edit `Config/Supermodel.ini` to change settings and controls, or us
 ### NVRAM (cabinet settings)
 
 Many Model 3 games keep their cabinet setup (single or linked cabinet, deluxe or twin,
-etc.) in NVRAM, and without it they stop at a setup screen or wait for other linked
-cabinets. SuperModel NX handles this in two ways:
+etc.) in NVRAM. SuperModel NX does not include any NVRAM data: provide your own.
 
-- **Automatic** (`InitialNvramSetup = 1`, default): the first time one of these games is
-  started without a saved NVRAM, it is set up as a single cabinet with no network link.
-  Covered sets: Daytona USA 2 (`daytona2`, `dayto2pe`), Scud Race (`scud`, `scudau`,
-  `scuddx`, `scuddxo`, `scudplus`, `scudplusa`), Sega Rally 2 (`srally2`, `srally2dx`),
-  Le Mans 24 (`lemans24`), Harley-Davidson & L.A. Riders (`harley`, `harleya`),
-  Dirt Devils (`dirtdvls*`), Ski Champ (`skichamp`), Spikeout (`spikeout`, `spikeofe`),
-  Virtual On Oratorio Tangram (`von2*`), The Lost World (`lostwsga`), L.A. Machineguns
-  (`lamachin`), Ocean Hunter (`oceanhun*`) and Star Wars Trilogy (`swtrilgy*`).
-- **Your own NVRAM files**: copy them to `sdmc:/switch/supermodel/NVRAM/` named after the
-  ROM set (e.g. `daytona2.nv`). They are loaded instead and never overwritten by the
-  automatic setup. The game saves its NVRAM there when you exit with − and +.
+- **Your own NVRAM files**: copy them to `sdmc:/switch/supermodel/NVRAM/`, named after
+  the ROM set (e.g. `daytona2.nv`, in Supermodel's `.nv` format).
+- **Or set the game up once**: without an NVRAM file, a game may stop at its cabinet
+  setup screen or wait for other linked cabinets. Open the game's test menu (Test button:
+  right stick click), set it to a single cabinet with no link, leave the test menu and
+  exit with − and +. The NVRAM is saved to `NVRAM/` and loaded every time after that.
 
 To start a game's setup again from scratch, delete its `.nv` file from `NVRAM/`.
 
@@ -145,6 +138,6 @@ It is not read from the SD card. Without it the header shows "SuperModel NX".
   fixes and native floating point.
 - `Src/OSD/Switch/`: SD card paths, OpenGL loading with glad, controller mappings, thread
   to core assignment, return to the game list, profiling.
-- `Src/OSD/SDL/`: desktop OpenGL context on the Switch, controller-driven menu, initial
-  NVRAM, on-screen FPS counter.
+- `Src/OSD/SDL/`: desktop OpenGL context on the Switch, controller-driven menu,
+  on-screen FPS counter.
 - `Src/Model3/Model3.cpp`: the libretro core option is only used in the libretro build.

@@ -26,8 +26,8 @@ include $(DEVKITPRO)/libnx/switch_rules
 # App metadata
 #---------------------------------------------------------------------------------
 APP_TITLE   := SuperModel NX
-APP_AUTHOR  := The Supermodel Team (Switch port)
-APP_VERSION := 0.1.0
+APP_AUTHOR  := ToniiSound
+APP_VERSION := 1.0
 ICON        := $(firstword $(wildcard Switch/icon.jpg) $(LIBNX)/default_icon.jpg)
 
 BUILD       := build/switch

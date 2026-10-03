@@ -145,7 +145,7 @@ It is not read from the SD card. Without it the header shows "SuperModel NX".
 - `Src/Model3/Model3.cpp`: the libretro core option is only used in the libretro build.
 
 
-This emulator is completely free and open-source.
-Optional donations to support the development are always welcome:
+This emulator is completely free and open-source. Optional donations to support the development are always welcome:
+
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/toniisound)
 [![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/toniisound)

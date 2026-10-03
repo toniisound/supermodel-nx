@@ -2,115 +2,127 @@
 
 # SuperModel NX
 
-**Emulador de Sega Model 3 para Nintendo Switch** (homebrew `.nro`), fork de
-[Supermodel](https://www.supermodel3.com) creado por **ToniiSound**.
+**Sega Model 3 arcade emulator for Nintendo Switch** (homebrew `.nro`), a fork of
+[Supermodel](https://www.supermodel3.com) created by **ToniiSound**.
 
-- Recompilador PowerPC → ARM64 (JIT), también para coma flotante.
-- Menú propio: lista de juegos de la SD, logo, ajustes con el botón **+**.
-- − y + a la vez durante un juego: vuelve a la lista de juegos.
-- NVRAM inicial para máquina individual (sin enlace) en los juegos que la necesitan.
-- Selector de resolución (1280x720, 960x540, 854x480) y contador de FPS en pantalla.
+- PowerPC → ARM64 recompiler (JIT), including floating point.
+- Its own menu: list of the games on the SD card, logo, settings on the **+** button.
+- Press − and + together during a game to go back to the game list.
+- Initial NVRAM set up for a single cabinet (no link) in the games that need it.
+- Resolution selector (1280x720, 960x540, 854x480) and on-screen FPS counter.
 
-> No incluye ROMs. Usa solo copias de juegos que tengas.
-> No está afiliado ni respaldado por Sega ni por Nintendo; Sega, Model 3 y los títulos
-> de los juegos son marcas de sus respectivos dueños.
+> No ROMs are included. Only use copies of games you own.
+> Not affiliated with or endorsed by Sega or Nintendo. Sega, Model 3 and the game
+> titles are trademarks of their respective owners.
 
-## Créditos
+## Credits
 
 - **Supermodel**: © 2003-2025 The Supermodel Team (Bart Trzynadlowski, Nik Henson,
-  Ian Curtis y colaboradores). <https://www.supermodel3.com>
-- **Libretro-Supermodel**: [libretro](https://github.com/libretro/Libretro-Supermodel) y
-  [sgiannop](https://github.com/sgiannop/Libretro-Supermodel), base de este fork y del
-  recompilador ARM64.
-- devkitPro y libnx, SDL2, Mesa, glad, Dear ImGui (Omar Cornut), Musashi (Karl Stenerud),
-  zlib y minizip.
+  Ian Curtis and contributors). <https://www.supermodel3.com>
+- **Libretro-Supermodel**: [libretro](https://github.com/libretro/Libretro-Supermodel) and
+  [sgiannop](https://github.com/sgiannop/Libretro-Supermodel), the base of this fork and of
+  the ARM64 recompiler.
+- devkitPro and libnx, SDL2, Mesa, glad, Dear ImGui (Omar Cornut), Musashi (Karl Stenerud),
+  zlib and minizip.
 
-La pestaña **Credits** del menú (+) muestra los mismos créditos.
+The **Credits** tab of the settings menu (+) shows the same credits.
 
-## Licencia
+## License
 
-GNU General Public License v3 o posterior: ver [LICENSE](LICENSE). Como fork de
-Supermodel, todo el código de este repositorio se distribuye bajo esa misma licencia.
+GNU General Public License v3 or later: see [LICENSE](LICENSE). As a fork of Supermodel,
+all the code in this repository is distributed under that same license.
 
-## Detalles técnicos
+## Technical overview
 
-Port como `.nro` independiente de Supermodel (emulador de Sega Model 3), basado en
-[Libretro-Supermodel](https://github.com/sgiannop/Libretro-Supermodel) por su
-recompilador PowerPC → ARM64. Usa el frontend SDL2 de Supermodel (con su menú ImGui
-para elegir juego), OpenGL de escritorio mediante Mesa/EGL y el JIT de libnx.
+A standalone `.nro` port of Supermodel, built on
+[Libretro-Supermodel](https://github.com/sgiannop/Libretro-Supermodel) for its PowerPC →
+ARM64 recompiler. It uses Supermodel's SDL2 front end (with an ImGui game list), desktop
+OpenGL through Mesa/EGL and libnx's JIT support.
 
-## Compilar (WSL o Linux con devkitPro)
+## Building (WSL or Linux with devkitPro)
 
 ```sh
 sudo dkp-pacman -S switch-dev switch-sdl2 switch-mesa switch-zlib
 make -f Makefile.switch -j$(nproc)
 ```
 
-Opciones:
+Options:
 
-| Opción | Efecto |
+| Option | Effect |
 | --- | --- |
-| `NXLINK=1` | Envía la salida de consola al PC (`nxlink -s build/switch/supermodel.nro`) |
-| `NO_JIT=1` | Solo el intérprete PowerPC (para descartar fallos del JIT) |
+| `NXLINK=1` | Sends console output to the PC (`nxlink -s build/switch/supermodel.nro`) |
+| `NO_JIT=1` | PowerPC interpreter only (to rule out recompiler bugs) |
 | `DEBUG=1` | `-O1 -g` |
 
-El resultado es `build/switch/supermodel.nro`.
+The output is `build/switch/supermodel.nro`.
 
-## Instalar
+## Installing
 
 ```
 sdmc:/switch/supermodel/
 ├── supermodel.nro
-└── ROMs/            ← zips estilo MAME: scud.zip, vf3.zip, daytona2.zip…
+└── ROMs/            ← MAME-style zips: scud.zip, vf3.zip, daytona2.zip…
 ```
 
-En el primer arranque se crean `Config/`, `NVRAM/`, `Saves/`, `Log/`, `Screenshots/` y
-`Assets/`, y se copian `Supermodel.ini`, `Games.xml` y `Music.xml`. Nunca se
-sobrescriben: edita `Config/Supermodel.ini` para cambiar ajustes y controles.
+On first launch `Config/`, `NVRAM/`, `Saves/`, `Log/`, `Screenshots/` and `Assets/` are
+created, and `Supermodel.ini`, `Games.xml` and `Music.xml` are copied. They are never
+overwritten: edit `Config/Supermodel.ini` to change settings and controls, or use
+**Load Defaults** in the General tab of the settings to restore them.
 
-Arranca el `.nro` **en modo título** (mantén R al abrir un juego desde el menú de
-inicio) para tener toda la RAM. El JIT necesita Atmosphère.
+Launch the `.nro` **in title mode** (hold R while opening a game from the HOME menu) to
+get all the memory. The recompiler needs Atmosphère.
 
-## Logo del menú
+Keep the folder name `supermodel`: the program reads and writes its files there.
 
-La parte superior de la lista de juegos muestra el logo que va dentro del `.nro`:
-pon `Assets/logo.bmp` en el proyecto antes de compilar (BMP de 32 bits para tener
-transparencia; se escala a ~120 px de alto manteniendo la proporción, p. ej. 800x120).
-No se lee de la SD. Sin el archivo se escribe "SuperModel NX".
+## Menu
 
-## Controles por defecto
+- The game list shows the games found in `ROMs/` (the **General** tab can show them all).
+  Choosing a game with A starts it.
+- **+** opens the settings: General, Core (PowerPC frequency), Video (resolution and
+  other options), Audio and Credits. **+** again goes back to the list.
+- HOME closes the program.
 
-| Botón | Acción |
+The header logo is built into the `.nro`: put `Assets/logo.bmp` in the project before
+building (32-bit BMP for transparency; drawn up to 120 px high, keeping its proportions).
+It is not read from the SD card. Without it the header shows "SuperModel NX".
+
+## Default controls
+
+| Button | Action |
 | --- | --- |
-| + / − | Start / Moneda |
-| Stick izquierdo, cruceta | Joystick, volante |
-| ZR / ZL | Acelerar / frenar, disparo (pistolas, Virtual On) |
-| R / L | Cambio de marcha arriba / abajo |
-| A B X Y | Botones del juego (VF3: Y defensa, B puñetazo, A patada, X escape) |
-| Click stick izquierdo / derecho | Service / Test |
-| − + + | Volver a la lista de juegos (Exit en la lista cierra el programa) |
-| − + R / − + L | Guardar / cargar estado |
-| − + cruceta derecha | Cambiar ranura de estado |
-| − + cruceta abajo | Pausa |
+| + / − | Start / Coin |
+| Left stick, D-pad | Joystick, steering |
+| ZR / ZL | Accelerate / brake, fire (gun games, Virtual On) |
+| R / L | Shift up / down |
+| A B X Y | Game buttons (VF3: Y guard, B punch, A kick, X escape) |
+| Left / right stick click | Service / Test |
+| − and + | Back to the game list |
+| − + R / − + L | Save / load state |
+| − + D-pad right | Change save state slot |
+| − + D-pad down | Pause |
 
-## Rendimiento
+## Performance
 
-Empieza con `ShowFrameRate = 1` (ya activado) y prueba primero juegos Step 1.0
-(Virtua Fighter 3, Scud Race). Si va lento:
+- **Resolution** (Video tab): 960x540 draws the 3D scene at 720x540 and is noticeably
+  faster than 1280x720 in demanding games (e.g. Daytona USA 2: ~38 → ~47 FPS in races).
+- **VSync** is off by default, so games that run below 60 FPS don't drop in steps.
+- **PowerPC frequency** (Core tab): Auto runs each game at its board's speed (Step 1.0:
+  66 MHz, Step 1.5: 100 MHz, Step 2.x: 166 MHz). For a single game it can be set in its
+  own section of `Supermodel.ini`, e.g. `[ daytona2 ]` + `PowerPCFrequency = 133`.
+- `JitNativeFP = 1` (default) also recompiles PowerPC floating point to ARM64. If a game
+  misbehaves (AI, physics, timing), set it to `0` in that game's section.
+- Overclocking with sys-clk helps; `MultiThreaded = 1` spreads the main board, sound and
+  drive board over the CPU cores.
+- `ShowFrameRate = 1` ("Write FPS to Supermodel.log") writes the frame rate and timings
+  to `Log/Supermodel.log` every 5 seconds.
 
-- Activa overclock con sys-clk.
-- `PowerPCFrequency = 50` en el `[ Global ]` (o en la sección del juego) baja la
-  frecuencia de la CPU emulada; muchos juegos lo toleran.
-- `MultiThreaded = 1` reparte placa base, sonido y placa de control entre los núcleos.
-- `JitNativeFP = 1` (por defecto) traduce también la coma flotante del PowerPC a ARM64.
-  Si un juego se comporta raro (IA, físicas, tiempos), ponlo a `0` en la sección de ese
-  juego, p. ej. `[ daytona2 ]` + `JitNativeFP = 0`.
+## Changes from Libretro-Supermodel
 
-## Qué cambia respecto a Libretro-Supermodel
-
-- `Src/CPU/PowerPC/Jit/JitArm64.cpp`: soporte de doble mapeo (RW para escribir, RX
-  para ejecutar) con la API `jit*` de libnx (`Src/OSD/Switch/SwitchJit.c`).
-- `Src/OSD/Switch/`: rutas en la SD, carga de OpenGL con glad, mapeo de mandos
-  y reparto de hilos por núcleo.
-- `Src/OSD/SDL/`: contexto OpenGL de escritorio en Switch, menú controlable con mando.
-- `Src/Model3/Model3.cpp`: la opción de núcleo de libretro solo se usa en la build libretro.
+- `Src/CPU/PowerPC/Jit/JitArm64.cpp`: dual mapping support (RW for writing, RX for
+  executing) through libnx's `jit*` API (`Src/OSD/Switch/SwitchJit.c`), block chaining
+  fixes and native floating point.
+- `Src/OSD/Switch/`: SD card paths, OpenGL loading with glad, controller mappings, thread
+  to core assignment, return to the game list, profiling.
+- `Src/OSD/SDL/`: desktop OpenGL context on the Switch, controller-driven menu, initial
+  NVRAM, on-screen FPS counter.
+- `Src/Model3/Model3.cpp`: the libretro core option is only used in the libretro build.

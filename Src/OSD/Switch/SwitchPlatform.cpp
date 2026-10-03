@@ -97,7 +97,7 @@ void SwitchPlatformInit()
       if (!FileExists(dest))
         CopyFile(std::string("romfs:/Config/") + file, dest);
     }
-    for (const char *file : { "p1crosshair.bmp", "p2crosshair.bmp", "logo.bmp" })
+    for (const char *file : { "p1crosshair.bmp", "p2crosshair.bmp" })
     {
       std::string dest = root + "/Assets/" + file;
       if (!FileExists(dest))
@@ -200,6 +200,27 @@ bool SwitchCopyBundledConfig(const char *dest)
     if (R_FAILED(romfsInit()))
         return false;
     const bool ok = CopyFile("romfs:/Config/Supermodel.ini", dest);
+    romfsExit();
+    return ok;
+}
+
+bool SwitchReadRomfsFile(const char *path, std::vector<unsigned char> &data)
+{
+    if (R_FAILED(romfsInit()))
+        return false;
+    bool ok = false;
+    if (FILE *f = fopen(path, "rb"))
+    {
+        fseek(f, 0, SEEK_END);
+        const long size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (size > 0)
+        {
+            data.resize(size_t(size));
+            ok = fread(data.data(), 1, data.size(), f) == data.size();
+        }
+        fclose(f);
+    }
     romfsExit();
     return ok;
 }

@@ -749,10 +749,11 @@ static void DrawPowerPCFrequency(Util::Config::Node& config)
 }
 
 #ifdef __SWITCH__
-// Header of the game list: the app logo (Assets/logo.bmp on the SD card, any
-// size, 32-bit BMP for transparency; scaled to the header height) and the
-// "(+) Settings" hint. Without the file the title is written instead.
-static const char* kLogoPath = "Assets/logo.bmp";
+// Header of the game list: the app logo and the "(+) Settings" hint. The logo
+// is only read from inside the .nro (RomFS, from Assets/logo.bmp in the
+// project; any size, 32-bit BMP for transparency, scaled to the header
+// height). Without it the title is written instead.
+static const char* kLogoPath = "romfs:/Assets/logo.bmp";
 static GLuint s_logoTexture = 0;
 static int s_logoWidth = 0, s_logoHeight = 0;
 static bool s_logoTried = false;
@@ -760,7 +761,10 @@ static bool s_logoTried = false;
 static void LoadLogo()
 {
     s_logoTried = true;
-    SDL_Surface* bmp = SDL_LoadBMP(kLogoPath);
+    std::vector<unsigned char> file;
+    if (!SwitchReadRomfsFile(kLogoPath, file))
+        return;
+    SDL_Surface* bmp = SDL_LoadBMP_RW(SDL_RWFromConstMem(file.data(), (int)file.size()), 1);
     if (!bmp)
         return;
     SDL_Surface* rgba = SDL_ConvertSurfaceFormat(bmp, SDL_PIXELFORMAT_ABGR8888, 0);  // R,G,B,A bytes

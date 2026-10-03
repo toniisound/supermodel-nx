@@ -25,6 +25,8 @@
 
 // Root folder on the SD card. Everything Supermodel reads or writes lives here:
 //   Config/  ROMs/  NVRAM/  Saves/  Log/  Screenshots/  Assets/
+#include <vector>
+
 #define SWITCH_SUPERMODEL_ROOT "sdmc:/switch/supermodel"
 
 // Call first thing in main(): creates the folders above, makes the root the
@@ -59,5 +61,8 @@ bool SwitchExitComboPressed();
 // Copies the Supermodel.ini bundled in the .nro (RomFS) to `dest`, for the
 // GUI's "Load Defaults". Returns false if it could not.
 bool SwitchCopyBundledConfig(const char *dest);
+
+// Reads a file from the .nro's RomFS (e.g. "romfs:/Assets/logo.bmp").
+bool SwitchReadRomfsFile(const char *path, std::vector<unsigned char> &data);
 
 #endif // INCLUDED_SWITCHPLATFORM_H

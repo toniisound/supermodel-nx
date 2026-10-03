@@ -802,35 +802,35 @@ static void DrawHeader(bool& toggleSettings)
     if (!s_logoTried)
         LoadLogo();
 
+    // Logo, centred
     const float headerHeight = 130.0f;
     ImGui::BeginChild("Header", ImVec2(0.0f, headerHeight), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNav);
+    const float avail = ImGui::GetContentRegionAvail().x;
 
     if (s_logoTexture) {
         // Fit the logo in the header, keeping its proportions
-        const float maxW = ImGui::GetContentRegionAvail().x * 0.7f;
+        const float maxW = avail * 0.9f;
         float h = headerHeight - 10.0f;
         float w = h * float(s_logoWidth) / float(s_logoHeight);
         if (w > maxW) { w = maxW; h = w * float(s_logoHeight) / float(s_logoWidth); }
-        ImGui::SetCursorPosY((headerHeight - h) * 0.5f);
+        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + (avail - w) * 0.5f, (headerHeight - h) * 0.5f));
         ImGui::Image((ImTextureID)(intptr_t)s_logoTexture, ImVec2(w, h));
     }
     else {
         ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 2.0f);
-        ImGui::SetCursorPosY((headerHeight - ImGui::GetTextLineHeight()) * 0.5f);
+        const ImVec2 size = ImGui::CalcTextSize("SuperModel NX");
+        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + (avail - size.x) * 0.5f, (headerHeight - size.y) * 0.5f));
         ImGui::TextUnformatted("SuperModel NX");
         ImGui::PopFont();
     }
+    ImGui::EndChild();
 
+    // Separate text line under the logo, on the right
     const char* hint = "(+) Settings";
-    const ImVec2 hintSize = ImGui::CalcTextSize(hint);
-    ImGui::SameLine();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - hintSize.x);
-    ImGui::SetCursorPosY((headerHeight - hintSize.y) * 0.5f);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(hint).x);
     ImGui::TextDisabled("%s", hint);
     if (ImGui::IsItemClicked())
         toggleSettings = true;
-
-    ImGui::EndChild();
 }
 #endif
 

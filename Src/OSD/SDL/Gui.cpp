@@ -874,6 +874,9 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
         // draw the tabbed options
         if (ImGui::BeginTabBar("MyTabBar", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
             if (ImGui::BeginTabItem("General")) {
+                UpdateTempValues(config, "General", true);
+                CreateControls(config, "General");      // ShowFPSOnScreen
+                UpdateTempValues(config, "General", false);
                 if (ImGui::Checkbox("Only show games found in ROMs folder", &onlyInstalled)) {
                     selectedGameIndex = -1;     // row numbers refer to the other list now
                 }

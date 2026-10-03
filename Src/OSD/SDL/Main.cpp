@@ -938,6 +938,101 @@ bool BeginFrameVideo()
   return true;
 }
 
+#ifdef __SWITCH__
+// Frame counter drawn in the top-left corner (ShowFPSOnScreen). Digits are
+// seven-segment rectangles cleared with the scissor test: no font, texture or
+// shader, and the renderer's GL state is restored afterwards.
+static void DrawFpsOverlay()
+{
+  static uint64_t s_lastTicks = 0;
+  static unsigned s_frames = 0;
+  static double s_fps = 0.0;
+
+  const uint64_t now = SDL_GetPerformanceCounter();
+  const uint64_t freq = SDL_GetPerformanceFrequency();
+  if (s_lastTicks == 0)
+    s_lastTicks = now;
+  s_frames++;
+  if (now - s_lastTicks >= freq / 2)   // update twice a second
+  {
+    s_fps = double(s_frames) * double(freq) / double(now - s_lastTicks);
+    s_frames = 0;
+    s_lastTicks = now;
+  }
+
+  char text[16];
+  snprintf(text, sizeof(text), "%.1f", s_fps);
+
+  // Segment layout of a digit (u = unit): a top, b top-right, c bottom-right,
+  // d bottom, e bottom-left, f top-left, g middle.
+  static const uint8_t s_segments[10] = {
+    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F   // bit 0 = a ... bit 6 = g
+  };
+  const int u = std::max(2, int(totalYRes) / 180);
+  const int margin = 2 * u;
+
+  // Width of the text, for the background box
+  int width = 0;
+  for (const char *p = text; *p; p++)
+    width += (*p == '.') ? 2 * u : 5 * u;
+
+  // Save the state this changes
+  GLint drawFbo = 0, scissorBox[4];
+  GLfloat clearColor[4];
+  GLboolean colorMask[4];
+  const GLboolean scissorOn = glIsEnabled(GL_SCISSOR_TEST);
+  glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &drawFbo);
+  glGetIntegerv(GL_SCISSOR_BOX, scissorBox);
+  glGetFloatv(GL_COLOR_CLEAR_VALUE, clearColor);
+  glGetBooleanv(GL_COLOR_WRITEMASK, colorMask);
+
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+  glEnable(GL_SCISSOR_TEST);
+  glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+  // Rectangle in top-left-origin window coordinates
+  auto rect = [&](int x, int y, int w, int h) {
+    glScissor(x, int(totalYRes) - y - h, w, h);
+    glClear(GL_COLOR_BUFFER_BIT);
+  };
+
+  const int x0 = margin, y0 = margin;
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  rect(x0 - u, y0 - u, width + u, 7 * u + 2 * u);
+
+  glClearColor(1.0f, 0.85f, 0.0f, 1.0f);
+  int x = x0;
+  for (const char *p = text; *p; p++)
+  {
+    if (*p == '.')
+    {
+      rect(x, y0 + 6 * u, u, u);
+      x += 2 * u;
+      continue;
+    }
+    if (*p < '0' || *p > '9')
+      continue;
+    const uint8_t s = s_segments[*p - '0'];
+    if (s & 0x01) rect(x,         y0,         4 * u, u);       // a
+    if (s & 0x02) rect(x + 3 * u, y0,         u,     4 * u);   // b
+    if (s & 0x04) rect(x + 3 * u, y0 + 3 * u, u,     4 * u);   // c
+    if (s & 0x08) rect(x,         y0 + 6 * u, 4 * u, u);       // d
+    if (s & 0x10) rect(x,         y0 + 3 * u, u,     4 * u);   // e
+    if (s & 0x20) rect(x,         y0,         u,     4 * u);   // f
+    if (s & 0x40) rect(x,         y0 + 3 * u, 4 * u, u);       // g
+    x += 5 * u;
+  }
+
+  // Restore
+  glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
+  glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+  glScissor(scissorBox[0], scissorBox[1], scissorBox[2], scissorBox[3]);
+  if (!scissorOn)
+    glDisable(GL_SCISSOR_TEST);
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawFbo);
+}
+#endif
+
 void EndFrameVideo()
 {
   SWITCH_GL_CHECK("end of frame");
@@ -946,6 +1041,14 @@ void EndFrameVideo()
   if (videoInputs)
     s_crosshair->Update(currentInputs, videoInputs, xOffset, yOffset, xRes, yRes);
   SWITCH_GL_CHECK("crosshair");
+
+#ifdef __SWITCH__
+  if (s_runtime_config["ShowFPSOnScreen"].ValueAsDefault<bool>(false))
+  {
+    DrawFpsOverlay();
+    SWITCH_GL_CHECK("FPS counter");
+  }
+#endif
 
   // Swap the buffers
 #ifdef __SWITCH__
@@ -1701,6 +1804,9 @@ Util::Config::Node DefaultConfig()
   config.Set("Throttle", true, "Video");
   config.Set("RefreshRate", 60.0f, "Video", 0.0f, 0.0f, { 57.5f,60.f });
   config.Set("ShowFrameRate", false, "Video");
+#ifdef __SWITCH__
+  config.Set("ShowFPSOnScreen", false, "General");   // frame counter in the top-left corner
+#endif
   config.Set("Crosshairs", int(0), "Video", 0, 0, { 0,1,2,3 });
   config.Set<std::string>("CrosshairStyle", "vector", "Video", "", "", { "bmp","vector" });
   config.Set("NoWhiteFlash", false, "Video");

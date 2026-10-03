@@ -97,7 +97,7 @@ void SwitchPlatformInit()
       if (!FileExists(dest))
         CopyFile(std::string("romfs:/Config/") + file, dest);
     }
-    for (const char *file : { "p1crosshair.bmp", "p2crosshair.bmp" })
+    for (const char *file : { "p1crosshair.bmp", "p2crosshair.bmp", "logo.bmp" })
     {
       std::string dest = root + "/Assets/" + file;
       if (!FileExists(dest))

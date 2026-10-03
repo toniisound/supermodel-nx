@@ -748,6 +748,88 @@ static void DrawPowerPCFrequency(Util::Config::Node& config)
     }
 }
 
+#ifdef __SWITCH__
+// Header of the game list: the app logo (Assets/logo.bmp on the SD card, any
+// size, 32-bit BMP for transparency; scaled to the header height) and the
+// "(+) Settings" hint. Without the file the title is written instead.
+static const char* kLogoPath = "Assets/logo.bmp";
+static GLuint s_logoTexture = 0;
+static int s_logoWidth = 0, s_logoHeight = 0;
+static bool s_logoTried = false;
+
+static void LoadLogo()
+{
+    s_logoTried = true;
+    SDL_Surface* bmp = SDL_LoadBMP(kLogoPath);
+    if (!bmp)
+        return;
+    SDL_Surface* rgba = SDL_ConvertSurfaceFormat(bmp, SDL_PIXELFORMAT_ABGR8888, 0);  // R,G,B,A bytes
+    SDL_FreeSurface(bmp);
+    if (!rgba)
+        return;
+
+    glGenTextures(1, &s_logoTexture);
+    glBindTexture(GL_TEXTURE_2D, s_logoTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, rgba->pitch / 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, rgba->w, rgba->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba->pixels);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    s_logoWidth = rgba->w;
+    s_logoHeight = rgba->h;
+    SDL_FreeSurface(rgba);
+}
+
+static void FreeLogo()
+{
+    if (s_logoTexture)
+        glDeleteTextures(1, &s_logoTexture);
+    s_logoTexture = 0;
+    s_logoTried = false;
+}
+
+static void DrawHeader(bool& toggleSettings)
+{
+    if (!s_logoTried)
+        LoadLogo();
+
+    const float headerHeight = 130.0f;
+    ImGui::BeginChild("Header", ImVec2(0.0f, headerHeight), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNav);
+
+    if (s_logoTexture) {
+        // Fit the logo in the header, keeping its proportions
+        const float maxW = ImGui::GetContentRegionAvail().x * 0.7f;
+        float h = headerHeight - 10.0f;
+        float w = h * float(s_logoWidth) / float(s_logoHeight);
+        if (w > maxW) { w = maxW; h = w * float(s_logoHeight) / float(s_logoWidth); }
+        ImGui::SetCursorPosY((headerHeight - h) * 0.5f);
+        ImGui::Image((ImTextureID)(intptr_t)s_logoTexture, ImVec2(w, h));
+    }
+    else {
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 2.0f);
+        ImGui::SetCursorPosY((headerHeight - ImGui::GetTextLineHeight()) * 0.5f);
+        ImGui::TextUnformatted("Supermodel");
+        ImGui::PopFont();
+    }
+
+    const char* hint = "(+) Settings";
+    const ImVec2 hintSize = ImGui::CalcTextSize(hint);
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - hintSize.x);
+    ImGui::SetCursorPosY((headerHeight - hintSize.y) * 0.5f);
+    ImGui::TextDisabled("%s", hint);
+    if (ImGui::IsItemClicked())
+        toggleSettings = true;
+
+    ImGui::EndChild();
+}
+#endif
+
 static Game GetGame(const std::map<std::string, Game>& games, int selectedGameIndex)
 {
     Game game;
@@ -877,7 +959,10 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
 
         ImGui::Spacing();
 #endif
-        // Switch: only the game list (+ opens the settings, HOME closes the program).
+#ifdef __SWITCH__
+        // Switch: logo header and the game list (+ opens the settings, HOME closes the program).
+        DrawHeader(toggleSettings);
+#endif
 
         DrawGameList(games, installed, selectedGameIndex, exit, focusPending);
         focusPending = false;
@@ -1263,6 +1348,9 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
 exitNoSave:
 
     // Cleanup resources
+#ifdef __SWITCH__
+    FreeLogo();
+#endif
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();

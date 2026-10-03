@@ -37,6 +37,14 @@ sobrescriben: edita `Config/Supermodel.ini` para cambiar ajustes y controles.
 Arranca el `.nro` **en modo título** (mantén R al abrir un juego desde el menú de
 inicio) para tener toda la RAM. El JIT necesita Atmosphère.
 
+## Logo del menú
+
+La parte superior de la lista de juegos muestra `sdmc:/switch/supermodel/Assets/logo.bmp`
+si existe (BMP de 32 bits para tener transparencia; se escala a 120 px de alto
+manteniendo la proporción, por ejemplo 800x120). Sin el archivo se escribe "Supermodel".
+Si pones `Assets/logo.bmp` en el proyecto antes de compilar, va dentro del `.nro` y se
+copia a la SD en el primer arranque.
+
 ## Controles por defecto
 
 | Botón | Acción |

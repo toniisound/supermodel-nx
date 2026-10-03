@@ -242,7 +242,7 @@ romfs:
 	@cp -u Config/Switch/Supermodel.ini $(ROMFS_DIR)/Config/Supermodel.ini
 	@cp -u Config/Games.xml Config/Music.xml $(ROMFS_DIR)/Config/
 	@cp -u Assets/p1crosshair.bmp Assets/p2crosshair.bmp $(ROMFS_DIR)/Assets/
-	@if [ -f Assets/logo.bmp ]; then cp -u Assets/logo.bmp $(ROMFS_DIR)/Assets/; fi
+	@if [ -f Assets/logo.bmp ]; then cp -u Assets/logo.bmp $(ROMFS_DIR)/Assets/; else rm -f $(ROMFS_DIR)/Assets/logo.bmp; fi
 
 $(OUTPUT).elf: $(OFILES)
 	@echo linking $(notdir $@)

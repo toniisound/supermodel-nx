@@ -802,7 +802,7 @@ static void DrawHeader(bool& toggleSettings)
     if (!s_logoTried)
         LoadLogo();
 
-    const float headerHeight = 130.0f;
+    const float headerHeight = 160.0f;      // logo drawn at 150 px (Assets/logo.bmp is made at that height)
     ImGui::BeginChild("Header", ImVec2(0.0f, headerHeight), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNav);
 
     if (s_logoTexture) {

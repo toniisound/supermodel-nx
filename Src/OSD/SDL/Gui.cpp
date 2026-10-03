@@ -721,10 +721,15 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
                 ImGui::SetKeyboardFocusHere();
             }
             if (ImGui::Selectable(g.second.name.c_str(), selectedGameIndex == row, ImGuiSelectableFlags_SpanAllColumns)) {
+#ifdef __SWITCH__
+                // Choosing a game (A) starts it straight away.
+                exit = true;
+#else
                 // Pressing A on the game that is already selected starts it.
                 if (selectedGameIndex == row) {
                     exit = true;
                 }
+#endif
                 selectedGameIndex = row;
             }
 
@@ -777,6 +782,7 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
 
     if (!showSettings) {
 
+#ifndef __SWITCH__
         // draw button options
         DrawButtonOptions(config, selectedGameIndex, exit, saveSettings);
 
@@ -788,6 +794,13 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
         if (ImGui::IsItemClicked()) {
             toggleSettings = true;
         }
+
+        ImGui::Spacing();
+#endif
+        // Switch: only the game list (+ opens the settings, HOME closes the program).
+
+        DrawGameList(games, installed, selectedGameIndex, exit, focusPending);
+        focusPending = false;
 
         // Don't leave the menu for a game whose ROMs aren't there: say so instead.
         static std::string missingZip;
@@ -813,10 +826,6 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
             ImGui::EndPopup();
         }
 
-        ImGui::Spacing();
-
-        DrawGameList(games, installed, selectedGameIndex, exit, focusPending);
-        focusPending = false;
     }
     else {
 

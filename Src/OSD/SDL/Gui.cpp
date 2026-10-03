@@ -180,6 +180,9 @@ static void CreateControls(Util::Config::Node& config, const std::string group)
             // The resolution is chosen with the "Resolution" selector above the tabs.
             if (key == "XResolution" || key == "YResolution")
                 continue;
+            // Core tab: only the emulated CPU speed; the rest stays as the .ini sets it.
+            if (group == "Core" && key != "PowerPCFrequency")
+                continue;
 #endif
 
             if (val) {

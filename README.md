@@ -10,7 +10,8 @@
 - Press − and + together during a game to go back to the game list.
 - Resolution selector (1280x720, 960x540, 854x480) and on-screen FPS counter.
 
-> No ROMs are included. Only use copies of games you own.
+> No ROMs or NVRAM data are included: provide your own, and only use copies of games
+> you own (see [Installing](#installing)).
 > Not affiliated with or endorsed by Sega or Nintendo. Sega, Model 3 and the game
 > titles are trademarks of their respective owners.
 
@@ -62,7 +63,8 @@ The output is `build/switch/supermodel.nro`.
 ```
 sdmc:/switch/supermodel/
 ├── supermodel.nro
-└── ROMs/            ← MAME-style zips: scud.zip, vf3.zip, daytona2.zip…
+├── ROMs/            ← your MAME-style ROM zips: scud.zip, vf3.zip, daytona2.zip…
+└── NVRAM/           ← your NVRAM files (optional): daytona2.nv…
 ```
 
 On first launch `Config/`, `NVRAM/`, `Saves/`, `Log/`, `Screenshots/` and `Assets/` are

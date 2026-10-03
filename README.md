@@ -143,3 +143,9 @@ It is not read from the SD card. Without it the header shows "SuperModel NX".
 - `Src/OSD/SDL/`: desktop OpenGL context on the Switch, controller-driven menu,
   on-screen FPS counter.
 - `Src/Model3/Model3.cpp`: the libretro core option is only used in the libretro build.
+
+
+This emulator is completely free and open-source.
+Optional donations to support the development and future updates are always welcome:
+https://ko-fi.com/toniisound
+https://paypal.me/toniisound

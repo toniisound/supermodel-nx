@@ -191,8 +191,9 @@ static void CreateControls(Util::Config::Node& config, const std::string group)
             // The resolution is chosen with the "Resolution" selector above the tabs.
             if (key == "XResolution" || key == "YResolution")
                 continue;
-            // Core tab: only the emulated CPU speed; the rest stays as the .ini sets it.
-            if (group == "Core" && key != "PowerPCFrequency")
+            // Core tab: only the emulated CPU speed, drawn by DrawPowerPCFrequency();
+            // the rest stays as the .ini sets it.
+            if (group == "Core")
                 continue;
 #endif
 
@@ -712,6 +713,41 @@ static void LoadDefaultSettings(Util::Config::Node& config)
     config = DefaultConfig();
 }
 
+// PowerPC frequency: automatic (each board's real speed) or one of the boards' speeds.
+struct FrequencyPreset { const char* label; unsigned mhz; };
+static const FrequencyPreset s_frequencyPresets[] = {
+    { "Auto (each game at its board's speed)",               0 },
+    { "66 MHz (Step 1.0: Virtua Fighter 3, Scud Race)",     66 },
+    { "100 MHz (Step 1.5: Le Mans 24, Virtua Fighter 3 tb)", 100 },
+    { "166 MHz (Step 2.x: Daytona 2, Sega Rally 2)",        166 },
+};
+
+static void DrawPowerPCFrequency(Util::Config::Node& config)
+{
+    const unsigned mhz = config["PowerPCFrequency"].ValueAsDefault<unsigned>(0);
+    const int count = (int)(sizeof(s_frequencyPresets) / sizeof(s_frequencyPresets[0]));
+    int current = -1;
+    for (int i = 0; i < count; i++) {
+        if (s_frequencyPresets[i].mhz == mhz)
+            current = i;
+    }
+
+    char other[64];
+    snprintf(other, sizeof(other), "%u MHz (custom)", mhz);
+    const char* preview = current >= 0 ? s_frequencyPresets[current].label : other;
+
+    ImGui::SetNextItemWidth(ImGui::CalcTextSize(s_frequencyPresets[2].label).x + 60.0f);
+    if (ImGui::BeginCombo("PowerPC frequency", preview)) {
+        for (int i = 0; i < count; i++) {
+            if (ImGui::Selectable(s_frequencyPresets[i].label, i == current))
+                SetKeepingRange(config, "PowerPCFrequency", s_frequencyPresets[i].mhz);
+            if (i == current)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+}
+
 static Game GetGame(const std::map<std::string, Game>& games, int selectedGameIndex)
 {
     Game game;
@@ -919,6 +955,9 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
                 inputs = nullptr;
             }
             if (ImGui::BeginTabItem("Core")) {
+#ifdef __SWITCH__
+                DrawPowerPCFrequency(config);       // before UpdateTempValues(), like the resolution
+#endif
                 UpdateTempValues(config, "Core", true);
                 CreateControls(config, "Core");
                 UpdateTempValues(config, "Core", false);

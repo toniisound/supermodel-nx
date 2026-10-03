@@ -834,6 +834,47 @@ static void DrawHeader(bool& toggleSettings)
 }
 #endif
 
+#ifdef __SWITCH__
+static void DrawCredits()
+{
+    ImGui::BeginChild("CreditsText", ImVec2(0.0f, 0.0f), false);
+
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.5f);
+    ImGui::TextUnformatted("SuperModel NX 1.0");
+    ImGui::PopFont();
+    ImGui::TextUnformatted("Nintendo Switch fork created by ToniiSound");
+
+    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+    ImGui::TextDisabled("Based on");
+    ImGui::BulletText("Supermodel - A Sega Model 3 Arcade Emulator");
+    ImGui::Indent();
+    ImGui::TextWrapped("Copyright 2003-2025 The Supermodel Team (Bart Trzynadlowski, Nik Henson, "
+                       "Ian Curtis and contributors). supermodel3.com");
+    ImGui::Unindent();
+    ImGui::BulletText("Libretro-Supermodel");
+    ImGui::Indent();
+    ImGui::TextWrapped("libretro and sgiannop/Libretro-Supermodel: modernized code base and the "
+                       "ARM64 PowerPC recompiler this fork is built on.");
+    ImGui::Unindent();
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Libraries and tools");
+    ImGui::BulletText("devkitPro and libnx (Switch homebrew toolchain and library)");
+    ImGui::BulletText("SDL2, Mesa (OpenGL), glad");
+    ImGui::BulletText("Dear ImGui by Omar Cornut");
+    ImGui::BulletText("Musashi 68000 core by Karl Stenerud");
+    ImGui::BulletText("zlib and minizip");
+
+    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+    ImGui::TextWrapped("Free software distributed under the GNU General Public License, version 3 "
+                       "or later, with no warranty. Its source code is available under the same license.");
+    ImGui::TextWrapped("Sega, Model 3 and the game titles are trademarks of their owners. No ROMs are "
+                       "included; use only games you own.");
+
+    ImGui::EndChild();
+}
+#endif
+
 static Game GetGame(const std::map<std::string, Game>& games, int selectedGameIndex)
 {
     Game game;
@@ -1070,6 +1111,13 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
                 ImGui::EndTabItem();
                 inputs = nullptr;
             }
+#ifdef __SWITCH__
+            if (ImGui::BeginTabItem("Credits")) {
+                DrawCredits();
+                ImGui::EndTabItem();
+                inputs = nullptr;
+            }
+#endif
 #ifndef __SWITCH__
             // Switch: only Core, Video and Audio are shown.
             if (ImGui::BeginTabItem("Networking")) {

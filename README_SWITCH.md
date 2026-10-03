@@ -1,4 +1,9 @@
-# Supermodel para Nintendo Switch
+# SuperModel NX (Supermodel para Nintendo Switch)
+
+Fork para Nintendo Switch creado por **ToniiSound**. Créditos a los autores originales:
+[Supermodel](https://www.supermodel3.com) (The Supermodel Team: Bart Trzynadlowski, Nik Henson,
+Ian Curtis y colaboradores) y Libretro-Supermodel (libretro y sgiannop). Licencia GPL v3.
+La pestaña **Credits** de la configuración (+) muestra los créditos completos.
 
 Port como `.nro` independiente de Supermodel (emulador de Sega Model 3), basado en
 [Libretro-Supermodel](https://github.com/sgiannop/Libretro-Supermodel) por su

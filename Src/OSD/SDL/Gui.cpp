@@ -817,7 +817,7 @@ static void DrawHeader(bool& toggleSettings)
     else {
         ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 2.0f);
         ImGui::SetCursorPosY((headerHeight - ImGui::GetTextLineHeight()) * 0.5f);
-        ImGui::TextUnformatted("Supermodel");
+        ImGui::TextUnformatted("Super Model NX");
         ImGui::PopFont();
     }
 

@@ -866,8 +866,6 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
         ImGui::SameLine();
         ImGui::TextDisabled("(+) Back to game list");
 
-        DrawResolutionPreset(config);
-
         ImGui::Spacing();
 
         // draw the tabbed options
@@ -908,6 +906,9 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
                 inputs = nullptr;
             }
             if (ImGui::BeginTabItem("Video")) {
+                // Before UpdateTempValues(): a preset change must not be
+                // overwritten by the tab's values from before the change.
+                DrawResolutionPreset(config);
                 UpdateTempValues(config, "Video", true);
                 CreateControls(config, "Video");
                 UpdateTempValues(config, "Video", false);

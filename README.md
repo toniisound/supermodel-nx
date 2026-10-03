@@ -69,6 +69,26 @@ created, and `Supermodel.ini`, `Games.xml` and `Music.xml` are copied. They are 
 overwritten: edit `Config/Supermodel.ini` to change settings and controls, or use
 **Load Defaults** in the General tab of the settings to restore them.
 
+### NVRAM (cabinet settings)
+
+Many Model 3 games keep their cabinet setup (single or linked cabinet, deluxe or twin,
+etc.) in NVRAM, and without it they stop at a setup screen or wait for other linked
+cabinets. SuperModel NX handles this in two ways:
+
+- **Automatic** (`InitialNvramSetup = 1`, default): the first time one of these games is
+  started without a saved NVRAM, it is set up as a single cabinet with no network link.
+  Covered sets: Daytona USA 2 (`daytona2`, `dayto2pe`), Scud Race (`scud`, `scudau`,
+  `scuddx`, `scuddxo`, `scudplus`, `scudplusa`), Sega Rally 2 (`srally2`, `srally2dx`),
+  Le Mans 24 (`lemans24`), Harley-Davidson & L.A. Riders (`harley`, `harleya`),
+  Dirt Devils (`dirtdvls*`), Ski Champ (`skichamp`), Spikeout (`spikeout`, `spikeofe`),
+  Virtual On Oratorio Tangram (`von2*`), The Lost World (`lostwsga`), L.A. Machineguns
+  (`lamachin`), Ocean Hunter (`oceanhun*`) and Star Wars Trilogy (`swtrilgy*`).
+- **Your own NVRAM files**: copy them to `sdmc:/switch/supermodel/NVRAM/` named after the
+  ROM set (e.g. `daytona2.nv`). They are loaded instead and never overwritten by the
+  automatic setup. The game saves its NVRAM there when you exit with − and +.
+
+To start a game's setup again from scratch, delete its `.nv` file from `NVRAM/`.
+
 Launch the `.nro` **in title mode** (hold R while opening a game from the HOME menu) to
 get all the memory. The recompiler needs Atmosphère.
 

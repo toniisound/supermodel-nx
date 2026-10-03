@@ -24,6 +24,8 @@
   the ARM64 recompiler.
 - devkitPro and libnx, SDL2, Mesa, glad, Dear ImGui (Omar Cornut), Musashi (Karl Stenerud),
   zlib and minizip.
+- Logo set in [Orbitron](https://fonts.google.com/specimen/Orbitron) by Matt McInerney
+  (SIL Open Font License).
 
 The **Credits** tab of the settings menu (+) shows the same credits.
 

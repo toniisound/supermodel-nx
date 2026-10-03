@@ -194,3 +194,12 @@ bool SwitchExitComboPressed()
     wasHeld = both;
     return pressed;
 }
+
+bool SwitchCopyBundledConfig(const char *dest)
+{
+    if (R_FAILED(romfsInit()))
+        return false;
+    const bool ok = CopyFile("romfs:/Config/Supermodel.ini", dest);
+    romfsExit();
+    return ok;
+}

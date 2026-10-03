@@ -56,4 +56,8 @@ bool SwitchRelaunchToMenu(const char *argv0);
 // Supermodel.ini maps. Call once per frame.
 bool SwitchExitComboPressed();
 
+// Copies the Supermodel.ini bundled in the .nro (RomFS) to `dest`, for the
+// GUI's "Load Defaults". Returns false if it could not.
+bool SwitchCopyBundledConfig(const char *dest);
+
 #endif // INCLUDED_SWITCHPLATFORM_H

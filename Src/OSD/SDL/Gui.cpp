@@ -1,6 +1,7 @@
 #include "SDLIncludes.h"
 #include <GL/glew.h>
 #include <cstring>
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -668,6 +669,26 @@ static void DrawResolutionPreset(Util::Config::Node& config)
     }
 }
 
+// "Load Defaults". On the Switch the defaults are the Supermodel.ini bundled
+// in the .nro (Joy-Con controls, sdlgamepad, 1280x720...) over the built-in
+// ones; the built-in ones alone would leave keyboard controls.
+static void LoadDefaultSettings(Util::Config::Node& config)
+{
+#ifdef __SWITCH__
+    const char* tmp = "Config/Supermodel.default.ini";
+    if (SwitchCopyBundledConfig(tmp)) {
+        Util::Config::Node bundled("Global");
+        Util::Config::Node merged("Global");
+        Util::Config::FromINIFile(&bundled, tmp);
+        std::remove(tmp);
+        Util::Config::MergeINISections(&merged, DefaultConfig(), bundled);
+        config = merged;
+        return;
+    }
+#endif
+    config = DefaultConfig();
+}
+
 static Game GetGame(const std::map<std::string, Game>& games, int selectedGameIndex)
 {
     Game game;
@@ -851,6 +872,25 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("(%d found)", (int)installed.size());
+
+                ImGui::Spacing();
+                if (ImGui::Button("Load Defaults")) {
+                    ImGui::OpenPopup("Confirm Load Defaults");
+                }
+                if (ImGui::BeginPopupModal("Confirm Load Defaults", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+                    ImGui::Text("Restore the default settings (video, audio, core and controls)?");
+                    ImGui::Separator();
+                    if (ImGui::Button("Yes", ImVec2(120, 0))) {
+                        LoadDefaultSettings(config);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SetItemDefaultFocus();
+                    ImGui::EndPopup();
+                }
                 ImGui::EndTabItem();
                 inputs = nullptr;
             }

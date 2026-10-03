@@ -864,7 +864,7 @@ static void DrawCredits()
     ImGui::BulletText("Dear ImGui by Omar Cornut");
     ImGui::BulletText("Musashi 68000 core by Karl Stenerud");
     ImGui::BulletText("zlib and minizip");
-    ImGui::BulletText("Logo set in Orbitron by Matt McInerney (SIL Open Font License)");
+    ImGui::BulletText("Logo set in Bungee Inline by David Jonathan Ross (SIL Open Font License)");
 
     ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
     ImGui::TextWrapped("Free software distributed under the GNU General Public License, version 3 "

@@ -147,6 +147,5 @@ It is not read from the SD card. Without it the header shows "SuperModel NX".
 
 This emulator is completely free and open-source.
 Optional donations to support the development are always welcome:
-https://ko-fi.com/toniisound
-
-https://paypal.me/toniisound
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/toniisound)
+[![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/toniisound)

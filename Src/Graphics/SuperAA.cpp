@@ -2,7 +2,7 @@
 #include <string>
 #include "GLSLVersion.h"
 
-SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors, float renderScale) :
+SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors, float renderScale, int upscaleFilter) :
 	m_aa(aaValue),
 	m_crtcolors(CRTcolors),
 	m_renderScale(aaValue > 1 ? 1.0f : renderScale),
@@ -38,7 +38,7 @@ SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors, float renderScale) :
 		ccString += std::to_string((int)m_crtcolors);
 		ccString += '\n';
 		if (m_renderScale < 1.0f) {
-			ccString += "#define UPSCALE 1\n";
+			ccString += upscaleFilter == 1 ? "#define UPSCALE 2\n" : "#define UPSCALE 1\n";
 		}
 
 		static const std::string fragmentShader = R"glsl(
@@ -112,9 +112,53 @@ SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors, float renderScale) :
 									0.9882066217159947);
 		#endif
 
+		#if (UPSCALE == 2)
+		// Catmull-Rom bicubic from 9 bilinear reads (each pair of the 4x4
+		// taps whose weights share a sign is merged into one read), clamped
+		// to the 2x2 texels around the sample so hard edges do not ring.
+		vec3 CatmullRom(sampler2D s, vec2 uv)
+		{
+			vec2 texSize	= vec2(textureSize(s, 0));
+			vec2 samplePos	= uv * texSize;
+			vec2 texPos1	= floor(samplePos - 0.5) + 0.5;
+			vec2 f			= samplePos - texPos1;
+
+			vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+			vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+			vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+			vec2 w3 = f * f * (-0.5 + 0.5 * f);
+
+			vec2 w12		= w1 + w2;
+			vec2 texPos0	= (texPos1 - 1.0) / texSize;
+			vec2 texPos3	= (texPos1 + 2.0) / texSize;
+			vec2 texPos12	= (texPos1 + w2 / w12) / texSize;
+
+			vec3 c = vec3(0.0);
+			c += texture(s, vec2(texPos0.x,  texPos0.y)).rgb  * w0.x  * w0.y;
+			c += texture(s, vec2(texPos12.x, texPos0.y)).rgb  * w12.x * w0.y;
+			c += texture(s, vec2(texPos3.x,  texPos0.y)).rgb  * w3.x  * w0.y;
+			c += texture(s, vec2(texPos0.x,  texPos12.y)).rgb * w0.x  * w12.y;
+			c += texture(s, vec2(texPos12.x, texPos12.y)).rgb * w12.x * w12.y;
+			c += texture(s, vec2(texPos3.x,  texPos12.y)).rgb * w3.x  * w12.y;
+			c += texture(s, vec2(texPos0.x,  texPos3.y)).rgb  * w0.x  * w3.y;
+			c += texture(s, vec2(texPos12.x, texPos3.y)).rgb  * w12.x * w3.y;
+			c += texture(s, vec2(texPos3.x,  texPos3.y)).rgb  * w3.x  * w3.y;
+
+			// anti-ringing: stay within the 2x2 neighbourhood
+			ivec2 p		= clamp(ivec2(texPos1 - 0.5), ivec2(0), ivec2(texSize) - 2);
+			vec3 t00	= texelFetch(s, p, 0).rgb;
+			vec3 t10	= texelFetch(s, p + ivec2(1, 0), 0).rgb;
+			vec3 t01	= texelFetch(s, p + ivec2(0, 1), 0).rgb;
+			vec3 t11	= texelFetch(s, p + ivec2(1, 1), 0).rgb;
+			return clamp(c, min(min(t00, t10), min(t01, t11)), max(max(t00, t10), max(t01, t11)));
+		}
+		#endif
+
 		vec3 GetTextureValue(sampler2D s)
 		{
-		#ifdef UPSCALE
+		#if (UPSCALE == 2)
+			return CatmullRom(s, gl_FragCoord.xy / outputSize);		// sharp upscale of the reduced render
+		#elif (UPSCALE == 1)
 			return texture(s, gl_FragCoord.xy / outputSize).rgb;	// bilinear upscale of the reduced render
 		#endif
 			ivec2 texPos	= ivec2(gl_FragCoord.xy /*-vec2(0.5)*/) * aa;

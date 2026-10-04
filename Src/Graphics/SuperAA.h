@@ -14,8 +14,9 @@ class SuperAA
 {
 public:
 	// renderScale < 1 (only when aaValue is 1): render at that fraction of the
-	// window size and upscale to the window with bilinear filtering.
-	SuperAA(int aaValue, CRTcolor CRTcolors, float renderScale = 1.0f);
+	// window size and upscale to the window. upscaleFilter: 0 bilinear,
+	// 1 Catmull-Rom (sharper, with anti-ringing).
+	SuperAA(int aaValue, CRTcolor CRTcolors, float renderScale = 1.0f, int upscaleFilter = 1);
 	~SuperAA();
 
 	void Init(int width, int height);		// width & height are real window dimensions

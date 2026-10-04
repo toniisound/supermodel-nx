@@ -171,6 +171,7 @@ static unsigned  xRes, yRes;            // renderer output resolution (can be sm
 static unsigned  totalXRes, totalYRes;  // total resolution (the whole GL viewport)
 static int aaValue = 1;                 // default is 1 which is no aa
 static float renderScale = 1.0f;        // RenderScale / 100: < 1 renders below window size and upscales (only without supersampling)
+static int renderScaleFilter = 1;       // RenderScaleFilter: 0 bilinear, 1 Catmull-Rom
 
 // Window-space size or position -> render target space (supersampling or reduced render scale).
 // Must round like SuperAA::Init so the render target and the renderers agree.
@@ -1215,7 +1216,7 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
   uint64_t nextTime = 0;
 
   // Initialize the renderers
-  SuperAA* superAA = new SuperAA(aaValue, CRTcolors, renderScale);
+  SuperAA* superAA = new SuperAA(aaValue, CRTcolors, renderScale, renderScaleFilter);
   superAA->Init(totalXRes, totalYRes);  // pass actual frame sizes here
   CRender2D *Render2D = new CRender2D(s_runtime_config);
   IRender3D *Render3D = s_runtime_config["New3DEngine"].ValueAs<bool>() ? ((IRender3D *) new New3D::CNew3D(s_runtime_config, Model3->GetGame().name)) : ((IRender3D *) new Legacy3D::CLegacy3D(s_runtime_config));
@@ -1802,6 +1803,7 @@ Util::Config::Node DefaultConfig()
   config.Set("BorderlessWindow", false, "Video");
   config.Set("Supersampling", 1, "Video", 1, 8);
   config.Set("RenderScale", 100, "Video", 25, 100);
+  config.Set("RenderScaleFilter", 1, "Video", 0, 0, { 0,1 });       // 0 bilinear, 1 Catmull-Rom
   config.Set("CRTcolors", int(0), "Video", 0, 0, { 0,1,2,3,4,5 });      // these might be more user friendly as strings
   config.Set("UpscaleMode", 2, "Video", 0, 0, { 0,1,2,3 });             // to do make strings
   config.Set("WideScreen", false, "Video");
@@ -2627,9 +2629,10 @@ int main(int argc, char **argv)
 
   aaValue = s_runtime_config["Supersampling"].ValueAs<int>();
   renderScale = std::max(25, std::min(100, s_runtime_config["RenderScale"].ValueAsDefault<int>(100))) / 100.0f;
+  renderScaleFilter = s_runtime_config["RenderScaleFilter"].ValueAsDefault<int>(1) == 0 ? 0 : 1;
   if (renderScale < 1.0f)
-    InfoLog("Render scale: %d%% of the window size (upscaled)%s", (int)(renderScale * 100.0f + 0.5f),
-            aaValue > 1 ? "; ignored because Supersampling > 1" : "");
+    InfoLog("Render scale: %d%% of the window size, %s upscale%s", (int)(renderScale * 100.0f + 0.5f),
+            renderScaleFilter ? "Catmull-Rom" : "bilinear", aaValue > 1 ? "; ignored because Supersampling > 1" : "");
   CRTcolors = (CRTcolor)s_runtime_config["CRTcolors"].ValueAs<int>();
 
   // Create a window

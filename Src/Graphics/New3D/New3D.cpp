@@ -209,14 +209,12 @@ CNew3D::CNew3D(const Util::Config::Node &config, const std::string& gameName) :
 #endif
 		GLint prevFBO = 0;
 		glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFBO);
-		glGenFramebuffers(4, m_losFBO);
-		glGenRenderbuffers(4, m_losRB);
-		for (int i = 0; i < 4; i++) {
-			glBindRenderbuffer(GL_RENDERBUFFER, m_losRB[i]);
-			glRenderbufferStorage(GL_RENDERBUFFER, depthFormat, 1, 1);
-			glBindFramebuffer(GL_FRAMEBUFFER, m_losFBO[i]);
-			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_losRB[i]);
-		}
+		glGenFramebuffers(1, &m_losFBO);
+		glGenRenderbuffers(1, &m_losRB);
+		glBindRenderbuffer(GL_RENDERBUFFER, m_losRB);
+		glRenderbufferStorage(GL_RENDERBUFFER, depthFormat, 4, 1);		// one pixel per priority layer
+		glBindFramebuffer(GL_FRAMEBUFFER, m_losFBO);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_losRB);
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
 		glBindFramebuffer(GL_FRAMEBUFFER, prevFBO);
 	}
@@ -240,11 +238,11 @@ CNew3D::~CNew3D()
 		if (m_losFence[i]) glDeleteSync(m_losFence[i]);
 		m_losFence[i] = 0;
 	}
-	if (m_losFBO[0]) {
-		glDeleteFramebuffers(4, m_losFBO);
-		glDeleteRenderbuffers(4, m_losRB);
-		memset(m_losFBO, 0, sizeof(m_losFBO));
-		memset(m_losRB, 0, sizeof(m_losRB));
+	if (m_losFBO) {
+		glDeleteFramebuffers(1, &m_losFBO);
+		glDeleteRenderbuffers(1, &m_losRB);
+		m_losFBO = 0;
+		m_losRB = 0;
 	}
 
 	m_r3dShader.UnloadShader();
@@ -2322,8 +2320,7 @@ bool CNew3D::HasTransparentMeshes(int priority, bool renderOverlay) const
 void CNew3D::CollectLosResults()
 {
 	if (m_asyncLos) {
-		GLint prevRead = 0;
-		glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
+		bool any = false;
 		for (int i = 0; i < 4; i++) {
 			if (!m_losPendingRead[i] || !m_losFence[i]) continue;
 			// Normally passed long ago (last frame's copy); wait only if not
@@ -2335,18 +2332,33 @@ void CNew3D::CollectLosResults()
 			}
 			glDeleteSync(m_losFence[i]);
 			m_losFence[i] = 0;
+			any = true;
+		}
+		if (!any) {
+			return;
+		}
 
-			glBindFramebuffer(GL_READ_FRAMEBUFFER, m_losFBO[i]);
+		// All slots in one read
+		GLint prevRead = 0;
+		glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, m_losFBO);
 #ifdef SWITCH_DEPTH24
-			GLuint packed = 0;
-			glReadPixels(0, 0, 1, 1, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, &packed);
-			GLubyte stencilVal = GLubyte(packed & 0xFF);
-			float zVal = (float(packed >> 8) / 16777215.0f) / NEAR_PLANE;
+		GLuint packed[4] = {};
+		glReadPixels(0, 0, 4, 1, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, packed);
 #else
-			float range[2] = {};
-			glReadPixels(0, 0, 1, 1, GL_DEPTH_STENCIL, GL_FLOAT_32_UNSIGNED_INT_24_8_REV, range);
-			GLubyte stencilVal = Util::FloatAsInt32(range[1]);
-			float zVal = range[0] / NEAR_PLANE;
+		float range[8] = {};
+		glReadPixels(0, 0, 4, 1, GL_DEPTH_STENCIL, GL_FLOAT_32_UNSIGNED_INT_24_8_REV, range);
+#endif
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, prevRead);
+
+		for (int i = 0; i < 4; i++) {
+			if (!m_losPendingRead[i]) continue;
+#ifdef SWITCH_DEPTH24
+			GLubyte stencilVal = GLubyte(packed[i] & 0xFF);
+			float zVal = (float(packed[i] >> 8) / 16777215.0f) / NEAR_PLANE;
+#else
+			GLubyte stencilVal = Util::FloatAsInt32(range[i * 2 + 1]);
+			float zVal = range[i * 2] / NEAR_PLANE;
 #endif
 			stencilVal &= 0x80;
 			auto zValP = reinterpret_cast<unsigned char*>(&zVal);
@@ -2355,7 +2367,6 @@ void CNew3D::CollectLosResults()
 			m_losBack->value[i] = zVal;
 			m_losPendingRead[i] = false;
 		}
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, prevRead);
 		return;
 	}
 
@@ -2404,8 +2415,8 @@ bool CNew3D::ProcessLos(int priority)
 					GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
 					glDisable(GL_SCISSOR_TEST);		// would clip the copy into the 1x1 buffer
 					glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
-					glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_losFBO[priority]);
-					glBlitFramebuffer(losX, losY, losX + 1, losY + 1, 0, 0, 1, 1, GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, GL_NEAREST);
+					glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_losFBO);
+					glBlitFramebuffer(losX, losY, losX + 1, losY + 1, priority, 0, priority + 1, 1, GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, GL_NEAREST);
 					glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 					if (scissor) glEnable(GL_SCISSOR_TEST);
 					if (m_losFence[priority]) glDeleteSync(m_losFence[priority]);

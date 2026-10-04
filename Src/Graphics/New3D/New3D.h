@@ -312,12 +312,14 @@ private:
 	bool m_losPendingRead[4];
 
 	// Async LOS (New3DAsyncLOS = 1): ProcessLos copies the one depth/stencil
-	// pixel into a 1x1 frame buffer on the GPU and sets a fence; the next
-	// frame reads it once the fence has passed. No readback in the middle of
-	// the frame, so the CPU does not wait there for the GPU to catch up.
+	// pixel into slot `priority` of a 4x1 frame buffer on the GPU and sets a
+	// fence; the next frame reads all slots with one glReadPixels once the
+	// fences have passed. No readback in the middle of the frame, so the CPU
+	// does not wait there for the GPU to catch up, and one read per frame
+	// (each read is a GPU round trip on the Switch's driver).
 	bool m_asyncLos = false;
-	GLuint m_losFBO[4] = {};
-	GLuint m_losRB[4] = {};
+	GLuint m_losFBO = 0;
+	GLuint m_losRB = 0;
 	GLsync m_losFence[4] = {};
 
 	GLuint m_vao;

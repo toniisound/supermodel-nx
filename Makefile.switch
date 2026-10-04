@@ -27,7 +27,7 @@ include $(DEVKITPRO)/libnx/switch_rules
 #---------------------------------------------------------------------------------
 APP_TITLE   := SuperModel NX
 APP_AUTHOR  := ToniiSound, Thorhax
-APP_VERSION := 1.1.0
+APP_VERSION := 1.2.0
 ICON        := $(firstword $(wildcard Switch/icon.jpg) $(LIBNX)/default_icon.jpg)
 
 BUILD       := build/switch

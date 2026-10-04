@@ -15,6 +15,19 @@
 > Not affiliated with or endorsed by Sega or Nintendo. Sega, Model 3 and the game
 > titles are trademarks of their respective owners.
 
+## What's new in 1.2.0
+
+- **No more mid-frame stalls in 3D games that use line of sight** (`New3DAsyncLOS`, on by
+  default). Reading the line-of-sight depth during the frame made the CPU wait for the GPU
+  each time: 7-11 ms per frame in Scud Race races. The reads are now copied on the GPU and
+  read at the start of the next frame. Scud Race holds 60 FPS in races with the GPU at its
+  standard 768 MHz (before: 49-56 FPS, or a 998 MHz overclock).
+- **Sharper `RenderScale` upscale**: `RenderScaleFilter = 1` (default) uses Catmull-Rom
+  instead of a bilinear stretch.
+- **3D options** for other GPUs and testing: `New3DEarlyDepth` (hardware depth, so hidden
+  pixels can be skipped before shading) and `New3DBatchedDraws`, both off by default.
+- **Log**: GPU time per stage of the frame, and where the 3D draw passes spend their time.
+
 ## What's new in 1.1.0
 
 - **Audio**: sound effects and speech no longer crackle. SDL's audio thread now runs on
@@ -31,8 +44,8 @@
 
 ## Credits
 
-- **SuperModel NX**: Nintendo Switch fork by ToniiSound; 1.1.0 audio and performance work
-  by Thorhax.
+- **SuperModel NX**: Nintendo Switch fork by ToniiSound; 1.1.0 and 1.2.0 audio and
+  performance work by Thorhax.
 - **Supermodel**: © 2003-2025 The Supermodel Team (Bart Trzynadlowski, Nik Henson,
   Ian Curtis and contributors). <https://www.supermodel3.com>
 - **Libretro-Supermodel**: [libretro](https://github.com/libretro/Libretro-Supermodel) and

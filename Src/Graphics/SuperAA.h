@@ -13,7 +13,9 @@
 class SuperAA
 {
 public:
-	SuperAA(int aaValue, CRTcolor CRTcolors);
+	// renderScale < 1 (only when aaValue is 1): render at that fraction of the
+	// window size and upscale to the window with bilinear filtering.
+	SuperAA(int aaValue, CRTcolor CRTcolors, float renderScale = 1.0f);
 	~SuperAA();
 
 	void Init(int width, int height);		// width & height are real window dimensions
@@ -27,6 +29,8 @@ private:
 	GLSLShader m_shader;
 	const int m_aa;
 	const CRTcolor m_crtcolors;
+	const float m_renderScale;
+	bool Active() const { return (m_aa > 1) || (m_crtcolors != CRTcolor::None) || (m_renderScale < 1.0f); }
 	GLuint m_vao;
 	GLuint m_outputTarget;
 	int m_width;

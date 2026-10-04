@@ -2,15 +2,16 @@
 #include <string>
 #include "GLSLVersion.h"
 
-SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors) :
+SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors, float renderScale) :
 	m_aa(aaValue),
 	m_crtcolors(CRTcolors),
+	m_renderScale(aaValue > 1 ? 1.0f : renderScale),
 	m_vao(0),
 	m_outputTarget(0),
 	m_width(0),
 	m_height(0)
 {
-	if ((m_aa > 1) || (m_crtcolors != CRTcolor::None)) {
+	if (Active()) {
 
 		static const char* vertexShader = R"glsl(
 
@@ -36,11 +37,15 @@ SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors) :
 		std::string ccString = "#define CRTCOLORS ";
 		ccString += std::to_string((int)m_crtcolors);
 		ccString += '\n';
+		if (m_renderScale < 1.0f) {
+			ccString += "#define UPSCALE 1\n";
+		}
 
 		static const std::string fragmentShader = R"glsl(
 
 		// inputs
 		uniform sampler2D tex1;			// base tex
+		uniform vec2 outputSize;		// window size (UPSCALE)
 
 		// outputs
 		out vec4 fragColor;
@@ -109,6 +114,9 @@ SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors) :
 
 		vec3 GetTextureValue(sampler2D s)
 		{
+		#ifdef UPSCALE
+			return texture(s, gl_FragCoord.xy / outputSize).rgb;	// bilinear upscale of the reduced render
+		#endif
 			ivec2 texPos	= ivec2(gl_FragCoord.xy /*-vec2(0.5)*/) * aa;
 			vec3 texColour	= vec3(0.0);
 
@@ -168,10 +176,11 @@ SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors) :
 		// load shaders
 		m_shader.LoadShaders(vertexShaderString.c_str(), fragmentShaderString.c_str());
 		m_shader.GetUniformLocationMap("tex1");
+		m_shader.GetUniformLocationMap("outputSize");
 
 		// setup uniform memory
 		m_shader.EnableShader();
-		glUniform1i(m_shader.attribLocMap["tex1"], 0);		// texture will be bound to unit zero
+		glUniform1i(m_shader.uniformLocMap["tex1"], 0);		// texture will be bound to unit zero
 		m_shader.DisableShader();
 
 		glGenVertexArrays(1, &m_vao);
@@ -195,9 +204,14 @@ SuperAA::~SuperAA()
 
 void SuperAA::Init(int width, int height)
 {
-	if ((m_aa > 1) || (m_crtcolors != CRTcolor::None)) {
+	if (Active()) {
 		m_fbo.Destroy();
-		m_fbo.Create(width * m_aa, height * m_aa);
+		if (m_renderScale < 1.0f) {
+			m_fbo.Create((int)(width * m_renderScale + 0.5f), (int)(height * m_renderScale + 0.5f));
+		}
+		else {
+			m_fbo.Create(width * m_aa, height * m_aa);
+		}
 
 		m_width = width;
 		m_height = height;
@@ -206,7 +220,7 @@ void SuperAA::Init(int width, int height)
 
 void SuperAA::Draw()
 {
-	if ((m_aa > 1) || (m_crtcolors != CRTcolor::None)) {
+	if (Active()) {
 		glBindFramebuffer(GL_FRAMEBUFFER, m_outputTarget);
 		glDisable(GL_DEPTH_TEST);
 		glDisable(GL_STENCIL_TEST);
@@ -216,6 +230,9 @@ void SuperAA::Draw()
 		glBindVertexArray(m_vao);
 		glViewport(0, 0, m_width, m_height);
 		m_shader.EnableShader();
+		if (m_renderScale < 1.0f) {
+			glUniform2f(m_shader.uniformLocMap["outputSize"], (float)m_width, (float)m_height);
+		}
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		m_shader.DisableShader();
 		glBindVertexArray(0);

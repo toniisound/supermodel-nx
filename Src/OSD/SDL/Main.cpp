@@ -170,6 +170,16 @@ static unsigned  xOffset, yOffset;      // offset of renderer output within Open
 static unsigned  xRes, yRes;            // renderer output resolution (can be smaller than GL viewport)
 static unsigned  totalXRes, totalYRes;  // total resolution (the whole GL viewport)
 static int aaValue = 1;                 // default is 1 which is no aa
+static float renderScale = 1.0f;        // RenderScale / 100: < 1 renders below window size and upscales (only without supersampling)
+
+// Window-space size or position -> render target space (supersampling or reduced render scale).
+// Must round like SuperAA::Init so the render target and the renderers agree.
+static unsigned RenderSize(unsigned v)
+{
+  if (aaValue > 1)
+    return v * aaValue;
+  return (unsigned)(v * renderScale + 0.5f);
+}
 static CRTcolor CRTcolors = CRTcolor::None; // default to no gamma/color adaption being done
 
 /*
@@ -234,11 +244,11 @@ static Result SetGLGeometry(unsigned *xOffsetPtr, unsigned *yOffsetPtr, unsigned
   // Scissor box (to clip visible area)
   if (s_runtime_config["WideScreen"].ValueAsDefault<bool>(false))
   {
-    glScissor(0* aaValue, correction* aaValue, *totalXResPtr * aaValue, (*totalYResPtr - (correction * 2)) * aaValue);
+    glScissor(RenderSize(0), RenderSize(correction), RenderSize(*totalXResPtr), RenderSize(*totalYResPtr - (correction * 2)));
   }
   else
   {
-    glScissor((*xOffsetPtr + correction) * aaValue, (*yOffsetPtr + correction) * aaValue, (*xResPtr - (correction * 2)) * aaValue, (*yResPtr - (correction * 2)) * aaValue);
+    glScissor(RenderSize(*xOffsetPtr + correction), RenderSize(*yOffsetPtr + correction), RenderSize(*xResPtr - (correction * 2)), RenderSize(*yResPtr - (correction * 2)));
   }
   return Result::OKAY;
 }
@@ -1205,16 +1215,16 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
   uint64_t nextTime = 0;
 
   // Initialize the renderers
-  SuperAA* superAA = new SuperAA(aaValue, CRTcolors);
+  SuperAA* superAA = new SuperAA(aaValue, CRTcolors, renderScale);
   superAA->Init(totalXRes, totalYRes);  // pass actual frame sizes here
   CRender2D *Render2D = new CRender2D(s_runtime_config);
   IRender3D *Render3D = s_runtime_config["New3DEngine"].ValueAs<bool>() ? ((IRender3D *) new New3D::CNew3D(s_runtime_config, Model3->GetGame().name)) : ((IRender3D *) new Legacy3D::CLegacy3D(s_runtime_config));
 
   UpscaleMode upscaleMode = (UpscaleMode)s_runtime_config["UpscaleMode"].ValueAs<int>();
 
-  if (Result::OKAY != Render2D->Init(xOffset*aaValue, yOffset*aaValue, xRes*aaValue, yRes*aaValue, totalXRes*aaValue, totalYRes*aaValue, superAA->GetTargetID(), upscaleMode))
+  if (Result::OKAY != Render2D->Init(RenderSize(xOffset), RenderSize(yOffset), RenderSize(xRes), RenderSize(yRes), RenderSize(totalXRes), RenderSize(totalYRes), superAA->GetTargetID(), upscaleMode))
     goto QuitError;
-  if (Result::OKAY != Render3D->Init(xOffset*aaValue, yOffset*aaValue, xRes*aaValue, yRes*aaValue, totalXRes*aaValue, totalYRes*aaValue, superAA->GetTargetID()))
+  if (Result::OKAY != Render3D->Init(RenderSize(xOffset), RenderSize(yOffset), RenderSize(xRes), RenderSize(yRes), RenderSize(totalXRes), RenderSize(totalYRes), superAA->GetTargetID()))
     goto QuitError;
 
   Model3->AttachRenderers(Render2D,Render3D, superAA);
@@ -1368,9 +1378,9 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
       superAA->Init(totalXRes, totalYRes);
       Render2D = new CRender2D(s_runtime_config);
 
-      if (Result::OKAY != Render2D->Init(xOffset * aaValue, yOffset * aaValue, xRes * aaValue, yRes * aaValue, totalXRes * aaValue, totalYRes * aaValue, superAA->GetTargetID(), upscaleMode))
+      if (Result::OKAY != Render2D->Init(RenderSize(xOffset), RenderSize(yOffset), RenderSize(xRes), RenderSize(yRes), RenderSize(totalXRes), RenderSize(totalYRes), superAA->GetTargetID(), upscaleMode))
         goto QuitError;
-      if (Result::OKAY != Render3D->Init(xOffset * aaValue, yOffset * aaValue, xRes * aaValue, yRes * aaValue, totalXRes * aaValue, totalYRes * aaValue, superAA->GetTargetID()))
+      if (Result::OKAY != Render3D->Init(RenderSize(xOffset), RenderSize(yOffset), RenderSize(xRes), RenderSize(yRes), RenderSize(totalXRes), RenderSize(totalYRes), superAA->GetTargetID()))
         goto QuitError;
 
       Model3->AttachRenderers(Render2D, Render3D, superAA);
@@ -1791,6 +1801,7 @@ Util::Config::Node DefaultConfig()
   config.Set("FullScreen", false, "Video");
   config.Set("BorderlessWindow", false, "Video");
   config.Set("Supersampling", 1, "Video", 1, 8);
+  config.Set("RenderScale", 100, "Video", 25, 100);
   config.Set("CRTcolors", int(0), "Video", 0, 0, { 0,1,2,3,4,5 });      // these might be more user friendly as strings
   config.Set("UpscaleMode", 2, "Video", 0, 0, { 0,1,2,3 });             // to do make strings
   config.Set("WideScreen", false, "Video");
@@ -2509,6 +2520,22 @@ int main(int argc, char **argv)
       }
   }
 
+#ifdef __SWITCH__
+  // Keep the logs of the three previous runs (Supermodel.log -> Supermodel.1.log
+  // -> .2 -> .3), so testing several settings in a row loses nothing.
+  {
+    const std::string base = s_logFilePath;
+    const size_t ext = base.rfind(".log");
+    if (ext != std::string::npos)
+    {
+      auto name = [&](int i) { return i == 0 ? base : base.substr(0, ext) + "." + std::to_string(i) + ".log"; };
+      std::remove(name(3).c_str());
+      for (int i = 2; i >= 0; i--)
+        std::rename(name(i).c_str(), name(i + 1).c_str());
+    }
+  }
+#endif
+
   // Create logger as specified by command line
   auto logger = CreateLogger(cmd_line.config);
   if (!logger)
@@ -2599,6 +2626,10 @@ int main(int argc, char **argv)
   std::string selectedInputSystem = s_runtime_config["InputSystem"].ValueAs<std::string>();
 
   aaValue = s_runtime_config["Supersampling"].ValueAs<int>();
+  renderScale = std::max(25, std::min(100, s_runtime_config["RenderScale"].ValueAsDefault<int>(100))) / 100.0f;
+  if (renderScale < 1.0f)
+    InfoLog("Render scale: %d%% of the window size (upscaled)%s", (int)(renderScale * 100.0f + 0.5f),
+            aaValue > 1 ? "; ignored because Supersampling > 1" : "");
   CRTcolors = (CRTcolor)s_runtime_config["CRTcolors"].ValueAs<int>();
 
   // Create a window

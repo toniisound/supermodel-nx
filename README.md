@@ -3,7 +3,7 @@
 # SuperModel NX
 
 **Sega Model 3 arcade emulator for Nintendo Switch** (homebrew `.nro`), a fork of
-[Supermodel](https://www.supermodel3.com) created by **ToniiSound**.
+[Supermodel](https://www.supermodel3.com) by **ToniiSound** and **Thorhax**.
 
 - PowerPC → ARM64 recompiler (JIT), including floating point.
 - Its own menu: list of the games on the SD card, logo, settings on the **+** button.
@@ -15,8 +15,24 @@
 > Not affiliated with or endorsed by Sega or Nintendo. Sega, Model 3 and the game
 > titles are trademarks of their respective owners.
 
+## What's new in 1.1.0
+
+- **Audio**: sound effects and speech no longer crackle. SDL's audio thread now runs on
+  core 2 above the emulator threads (libnx started it at the lowest priority on the render
+  core), with larger device buffers.
+- **No more render stutter**: 3D textures upload in one call per rectangle instead of one per
+  row, and the 2D layers rotate between three textures. Scud Race no longer drops to
+  20-30 FPS during loading and attract mode.
+- **PowerPC JIT**: decrementer reads (`mfspr DEC`) are compiled instead of interpreted.
+- **3D**: per-mesh state comes from one buffer per pass instead of shader uniforms
+  (`New3DBatchedDraws`); new `RenderScale` option.
+- **Diagnostics**: the log reports audio timing, a breakdown of 3D render time, and keeps the
+  logs of the three previous runs (`Supermodel.1.log` to `.3.log`).
+
 ## Credits
 
+- **SuperModel NX**: Nintendo Switch fork by ToniiSound; 1.1.0 audio and performance work
+  by Thorhax.
 - **Supermodel**: © 2003-2025 The Supermodel Team (Bart Trzynadlowski, Nik Henson,
   Ian Curtis and contributors). <https://www.supermodel3.com>
 - **Libretro-Supermodel**: [libretro](https://github.com/libretro/Libretro-Supermodel) and
@@ -129,7 +145,14 @@ It is not read from the SD card. Without it the header shows "SuperModel NX".
 - `JitNativeFP = 1` (default) also recompiles PowerPC floating point to ARM64. If a game
   misbehaves (AI, physics, timing), set it to `0` in that game's section.
 - Overclocking with sys-clk helps; `MultiThreaded = 1` spreads the main board, sound and
-  drive board over the CPU cores.
+  drive board over the CPU cores. In 3D-heavy races (e.g. Scud Race) the **GPU** is the
+  limit, so raise the GPU clock rather than the CPU's.
+- `RenderScale` (25-100, default 100): renders at that percentage of the resolution and
+  upscales. In Scud Race races, 75 holds 60 FPS where 100 runs at 52-57, at some cost in
+  sharpness.
+- `New3DBatchedDraws` (default 1): per-mesh 3D state from one buffer instead of uniforms;
+  a start-up self-test picks the method (see the log). `0` restores the upstream path. Do
+  not use `2` (multi-draw indirect) on the Switch: it hangs the GPU.
 - `ShowFrameRate = 1` ("Write FPS to Supermodel.log") writes the frame rate and timings
   to `Log/Supermodel.log` every 5 seconds.
 

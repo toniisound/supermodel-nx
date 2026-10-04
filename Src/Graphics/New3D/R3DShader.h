@@ -25,10 +25,29 @@ public:
 	void	DiscardAlpha		(bool discard);				// use to remove alpha from texture alpha only polys for 1st pass
 	void	SetLayer			(Layer layer);
 
+	// Batched drawing (New3DBatchedDraws = 1): the per-mesh and per-model
+	// values come from a buffer texture, one record per draw, picked by an
+	// instanced draw ID attribute (baseInstance), instead of uniforms. Runs of
+	// meshes then go out in one glMultiDrawArraysIndirect.
+	static constexpr int kDrawDataTexels	= 8;			// RGBA32UI texels per draw record
+	static constexpr int kDrawDataUnit		= 2;			// texture unit of the draw record buffer texture
+	bool	IsBatched			() const { return m_batched; }
+	void	DisableBatching		();							// rebuild the normal (per-mesh uniform) program
+	void	ProbeBatchedShader	();							// diagnostics only: build the batched program, log the result, delete it
+	static void PackDrawData	(const Model* model, const Mesh* mesh, GLuint* out);	// writes kDrawDataTexels * 4 words
+	bool	StencilChanges		(const Mesh* m) const;		// would SetMeshStencil change GL state?
+	void	SetMeshStencil		(const Mesh* m);			// the stencil part of SetMeshUniforms
+
 private:
 
 	void PrintShaderResult(GLuint shader);
 	void PrintProgramResult(GLuint program);
+	bool BuildProgram(const char* vShader, const char* gShader, const char* fShader, bool quads, const char* fCommon, const char* versionStr);
+	void GetUniformLocations();
+
+	bool m_batched = false;
+	bool m_forceUnbatched = false;
+	bool m_dirtyStencil = true;
 
 	// run-time config
 	const Util::Config::Node &m_config;

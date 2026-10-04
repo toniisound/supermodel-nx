@@ -8,9 +8,9 @@
 #include "R3DFloat.h"
 #include "Util/BitCast.h"
 #include "OSD/Switch/SwitchGLDebug.h"
+#include "OSD/Logger.h"
 
 #ifdef __SWITCH__
-#include "OSD/Logger.h"
 #include "OSD/Switch/SwitchProfile.h"
 
 // Switch diagnostics: every 300 frames (~5 s) the log gets what the 3D
@@ -23,6 +23,7 @@ namespace
 	{
 		unsigned frames = 0, whiteFrames = 0, emptyFrames = 0;
 		unsigned long long draws = 0, verts = 0;
+		unsigned long long glDrawCalls = 0;	// draw calls actually made (one per mesh unless batched)
 		unsigned lastNodes = 0;
 		// Where "3D scene" time goes (ns, summed over the report period)
 		unsigned long long losNs = 0, buildNs = 0, uploadNs = 0, drawNs = 0, compositeNs = 0;
@@ -38,9 +39,9 @@ namespace
 		if (st.frames < 300)
 			return;
 
-		InfoLog("3D: %u frames (%u white, %u without draws), %llu draws/frame, %llu verts/frame, %u viewports",
+		InfoLog("3D: %u frames (%u white, %u without draws), %llu draws/frame (%llu GL draw calls), %llu verts/frame, %u viewports",
 			st.frames, st.whiteFrames, st.emptyFrames,
-			st.draws / st.frames, st.verts / st.frames, st.lastNodes);
+			st.draws / st.frames, st.glDrawCalls / st.frames, st.verts / st.frames, st.lastNodes);
 		InfoLog("3D per frame (ms): LOS readback %.2f, scene build %.2f, vertex upload %.2f, draw passes %.2f, composite %.2f",
 			st.losNs / 1e6 / st.frames, st.buildNs / 1e6 / st.frames, st.uploadNs / 1e6 / st.frames,
 			st.drawNs / 1e6 / st.frames, st.compositeNs / 1e6 / st.frames);
@@ -108,6 +109,17 @@ CNew3D::CNew3D(const Util::Config::Node &config, const std::string& gameName) :
 #endif
 
 	m_r3dShader.LoadShader();
+	if (m_r3dShader.IsBatched()) {
+		m_batchMethod = SelectBatchMethod(config["New3DBatchedDraws"].ValueAsDefault<int>(1));
+		if (m_batchMethod == BatchMethod::None) {
+			m_r3dShader.DisableBatching();
+		}
+	}
+	else if (config["New3DBatchedDraws"].ValueAsDefault<int>(1) == 0 && !config["QuadRendering"].ValueAs<bool>()) {
+		// Batching is off: still test it, for the log only
+		SelectBatchMethod(0);
+		m_r3dShader.ProbeBatchedShader();
+	}
 	glUseProgram(0);
 
 	// setup up our vertex buffer memory
@@ -136,6 +148,10 @@ CNew3D::CNew3D(const Util::Config::Node &config, const std::string& gameName) :
 	glVertexAttribPointer(m_r3dShader.GetVertexAttribPos("inFixedShade"), 1, GL_FLOAT, GL_FALSE, sizeof(FVertex), (void*)offsetof(FVertex, fixedShade));
 	glVertexAttribPointer(m_r3dShader.GetVertexAttribPos("inTextureNP"), 1, GL_FLOAT, GL_FALSE, sizeof(FVertex), (void*)offsetof(FVertex, textureNP));
 
+	if (m_r3dShader.IsBatched()) {
+		CreateBatchedDrawResources();		// adds the draw ID attribute to the bound VAO
+	}
+
 	glBindVertexArray(0);
 	m_vbo.Bind(false);
 
@@ -152,6 +168,7 @@ CNew3D::CNew3D(const Util::Config::Node &config, const std::string& gameName) :
 
 CNew3D::~CNew3D()
 {
+	DestroyBatchedDrawResources();
 	m_vbo.Destroy();
 	if (m_vao) {
 		glDeleteVertexArrays(1, &m_vao);
@@ -392,8 +409,408 @@ void CNew3D::DrawAmbientFog()
 	}
 }
 
+void CNew3D::CreateBatchedDrawResources()
+{
+	// Draw ID attribute: one value per instance. Each indirect command draws
+	// one instance with baseInstance = its draw record index, so the shader
+	// reads inDrawID = baseInstance.
+	std::vector<GLuint> ids(kMaxBatchedDraws);
+	for (GLuint i = 0; i < kMaxBatchedDraws; i++) {
+		ids[i] = i;
+	}
+	glGenBuffers(1, &m_drawIDBuffer);
+	glBindBuffer(GL_ARRAY_BUFFER, m_drawIDBuffer);
+	glBufferData(GL_ARRAY_BUFFER, ids.size() * sizeof(GLuint), ids.data(), GL_STATIC_DRAW);
+	GLint loc = m_r3dShader.GetVertexAttribPos("inDrawID");
+	if (loc < 0) {
+		ErrorLog("New3D: batched shader has no inDrawID attribute.");
+	}
+	m_drawIDLoc = loc;
+	glVertexAttribIPointer(loc, 1, GL_UNSIGNED_INT, 0, nullptr);
+	glVertexAttribDivisor(loc, 1);
+	if (m_batchMethod != BatchMethod::GenericAttrib) {
+		glEnableVertexAttribArray(loc);		// else the ID is set per draw with glVertexAttribI4ui
+	}
+	m_vbo.Bind(true);
+
+	glGenBuffers(1, &m_drawDataBuffer);
+	glBindBuffer(GL_TEXTURE_BUFFER, m_drawDataBuffer);
+	glBufferData(GL_TEXTURE_BUFFER, R3DShader::kDrawDataTexels * 16, nullptr, GL_STREAM_DRAW);
+	glGenTextures(1, &m_drawDataTexture);
+	glBindTexture(GL_TEXTURE_BUFFER, m_drawDataTexture);
+	glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32UI, m_drawDataBuffer);
+	glBindTexture(GL_TEXTURE_BUFFER, 0);
+	glBindBuffer(GL_TEXTURE_BUFFER, 0);
+
+	glGenBuffers(1, &m_indirectBuffer);
+}
+
+void CNew3D::DestroyBatchedDrawResources()
+{
+	if (m_drawDataTexture) {
+		glDeleteTextures(1, &m_drawDataTexture);
+		m_drawDataTexture = 0;
+	}
+	for (GLuint* b : { &m_drawIDBuffer, &m_drawDataBuffer, &m_indirectBuffer }) {
+		if (*b) {
+			glDeleteBuffers(1, b);
+			*b = 0;
+		}
+	}
+}
+
+// RenderScene with batched draws: same meshes, same order, same state as
+// RenderScene, but the per-mesh values go in one buffer per call and runs of
+// meshes between state changes (viewport, stencil) are a single
+// glMultiDrawArraysIndirect.
+bool CNew3D::RenderSceneBatched(int priority, bool renderOverlay, Layer layer)
+{
+	glActiveTexture(GL_TEXTURE0);
+	m_textureBank[0].Bind();
+	glActiveTexture(GL_TEXTURE1);
+	m_textureBank[1].Bind();
+	glActiveTexture(GL_TEXTURE0);
+
+	bool hasOverlay = false;		// (high priority polys)
+
+	// Pass 1: collect the draws (and the viewports they follow) and their records
+	m_drawData.clear();
+	m_drawCommands.clear();
+	m_batchSteps.clear();
+
+	for (auto &n : m_nodes) {
+
+		if (n.viewport.priority != priority || n.models.empty()) {
+			continue;
+		}
+
+		m_batchSteps.push_back({ &n, nullptr });
+
+		for (auto &m : n.models) {
+
+			if (m.meshes->empty()) {
+				continue;
+			}
+
+			for (auto &mesh : *m.meshes) {
+
+				if (mesh.highPriority) {
+					hasOverlay = true;
+				}
+
+				if (!mesh.Render(layer, m.alpha)) continue;
+				if (mesh.highPriority != renderOverlay) continue;
+
+				GLuint index = (GLuint)m_drawCommands.size();
+				if (index >= kMaxBatchedDraws) {
+					static bool s_warned = false;
+					if (!s_warned) {
+						ErrorLog("New3D: more than %u draws in one pass; extra meshes skipped.", kMaxBatchedDraws);
+						s_warned = true;
+					}
+					continue;
+				}
+
+				m_drawCommands.push_back({ (GLuint)mesh.vertexCount, 1, (GLuint)mesh.vboOffset, index });
+				m_drawData.resize(m_drawData.size() + R3DShader::kDrawDataTexels * 4);
+				R3DShader::PackDrawData(&m, &mesh, m_drawData.data() + m_drawData.size() - R3DShader::kDrawDataTexels * 4);
+				m_batchSteps.push_back({ nullptr, &mesh });
+#ifdef __SWITCH__
+				s_frameDraws++;
+				s_3dStats.draws++;
+				s_3dStats.verts += mesh.vertexCount;
+#endif
+			}
+		}
+	}
+
+	// Upload this call's records and commands (orphaning the previous storage,
+	// which earlier draws may still be reading)
+	if (!m_drawCommands.empty()) {
+		glBindBuffer(GL_TEXTURE_BUFFER, m_drawDataBuffer);
+		glBufferData(GL_TEXTURE_BUFFER, m_drawData.size() * sizeof(GLuint), m_drawData.data(), GL_STREAM_DRAW);
+		glBindBuffer(GL_TEXTURE_BUFFER, 0);
+		glActiveTexture(GL_TEXTURE0 + R3DShader::kDrawDataUnit);
+		glBindTexture(GL_TEXTURE_BUFFER, m_drawDataTexture);
+		glActiveTexture(GL_TEXTURE0);
+
+		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectBuffer);
+		glBufferData(GL_DRAW_INDIRECT_BUFFER, m_drawCommands.size() * sizeof(DrawArraysIndirectCommand), m_drawCommands.data(), GL_STREAM_DRAW);
+	}
+
+	// Pass 2: replay in order, one multi-draw per run without state changes
+	GLuint runStart = 0, runCount = 0;
+	auto flush = [&]() {
+		if (!runCount) {
+			return;
+		}
+		if (m_batchMethod == BatchMethod::MultiDrawIndirect) {
+			glMultiDrawArraysIndirect(m_primType, (const void*)(uintptr_t)(runStart * sizeof(DrawArraysIndirectCommand)), runCount, 0);
+#ifdef __SWITCH__
+			s_3dStats.glDrawCalls++;
+#endif
+		}
+		else {
+			for (GLuint i = runStart; i < runStart + runCount; i++) {
+				const auto &c = m_drawCommands[i];
+				if (m_batchMethod == BatchMethod::BaseInstance) {
+					glDrawArraysInstancedBaseInstance(m_primType, c.first, c.count, 1, c.baseInstance);
+				}
+				else {
+					glVertexAttribI4ui(m_drawIDLoc, c.baseInstance, 0, 0, 0);
+					glDrawArrays(m_primType, c.first, c.count);
+				}
+			}
+#ifdef __SWITCH__
+			s_3dStats.glDrawCalls += runCount;
+#endif
+		}
+		runStart += runCount;
+		runCount = 0;
+	};
+
+	for (const auto &step : m_batchSteps) {
+		if (step.node) {
+			flush();
+			CalcViewport(&step.node->viewport);
+			glViewport(step.node->viewport.x, step.node->viewport.y, step.node->viewport.width, step.node->viewport.height);
+			m_r3dShader.SetViewportUniforms(&step.node->viewport);
+		}
+		else {
+			if (m_r3dShader.StencilChanges(step.mesh)) {
+				flush();
+				m_r3dShader.SetMeshStencil(step.mesh);
+			}
+			runCount++;
+		}
+	}
+	flush();
+
+	if (!m_drawCommands.empty()) {
+		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+
+		static bool s_checked = false;		// report a GL error from the first batched pass
+		if (!s_checked) {
+			s_checked = true;
+			GLenum err = glGetError();
+			if (err != GL_NO_ERROR) {
+				ErrorLog("New3D: GL error 0x%X after the first batched pass.", err);
+			}
+		}
+	}
+
+	return hasOverlay;
+}
+
+// Start-up self-test for batched draws: draws two one-pixel triangles whose
+// position and colour come from draw records, through the same path the
+// real shader uses (instanced draw ID, RGBA32UI buffer texture,
+// uintBitsToFloat, flat integer varyings), with each submission method.
+// Like a real pass, it submits kTestDraws draws (all but two off screen),
+// the two visible ones have large draw IDs, and the multi-draw starts at a
+// non-zero offset in the indirect buffer.
+// Logs what works; returns the method to use (None: keep per-mesh uniforms).
+CNew3D::BatchMethod CNew3D::SelectBatchMethod(int setting)
+{
+	static const char *vs = R"glsl(#version 410 core
+uniform usamplerBuffer	drawData;
+in uint					inDrawID;
+flat out ivec4			vColour;
+void main(void)
+{
+	int base = int(inDrawID) * 2;
+	vec4 f = uintBitsToFloat(texelFetch(drawData, base));
+	vColour = ivec4(texelFetch(drawData, base + 1));
+	vec2 p[3] = vec2[3](vec2(-0.4, -0.9), vec2(0.4, -0.9), vec2(0.0, 0.9));
+	gl_Position = vec4(f.x + p[gl_VertexID % 3].x, p[gl_VertexID % 3].y, 0.0, 1.0);
+}
+)glsl";
+	static const char *fs = R"glsl(#version 410 core
+flat in ivec4	vColour;
+out vec4		outColour;
+void main(void)
+{
+	outColour = vec4(vColour) / 255.0;
+}
+)glsl";
+
+	const char *names[] = { "off", "multi-draw indirect", "base instance", "generic attribute" };
+
+	auto compile = [](GLenum type, const char *src) {
+		GLuint s = glCreateShader(type);
+		glShaderSource(s, 1, &src, nullptr);
+		glCompileShader(s);
+		return s;
+	};
+	GLuint prog = glCreateProgram();
+	GLuint v = compile(GL_VERTEX_SHADER, vs);
+	GLuint f = compile(GL_FRAGMENT_SHADER, fs);
+	glAttachShader(prog, v);
+	glAttachShader(prog, f);
+	glLinkProgram(prog);
+	glDeleteShader(v);
+	glDeleteShader(f);
+	GLint linked = GL_FALSE;
+	glGetProgramiv(prog, GL_LINK_STATUS, &linked);
+	if (!linked) {
+		glDeleteProgram(prog);
+		ErrorLog("New3D: batched draw self-test shader failed to link; using per-mesh uniforms.");
+		return BatchMethod::None;
+	}
+
+	GLint prevFBO = 0, prevViewport[4];
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFBO);
+	glGetIntegerv(GL_VIEWPORT, prevViewport);
+
+	GLuint fbo, colour, vao, ids, data, tex, ind;
+	glGenTextures(1, &colour);
+	glBindTexture(GL_TEXTURE_2D, colour);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 2, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colour, 0);
+	glViewport(0, 0, 2, 1);
+
+	// Draw kSeen: pixel 0 (x = -0.5), colour 10 20 30 40; draw kSeen + 1: pixel 1
+	// (x = 0.5), colour 50 60 70 80. Every other draw is off screen (x = 10).
+	// Draw i uses vertices 3i..3i+2 (gl_VertexID % 3 picks the corner).
+	const GLuint kTestDraws = 1500, kSeen = 1200, kFirst = 1000;
+	std::vector<GLuint> records(kTestDraws * 8, 0);
+	std::vector<GLuint> idValues(kTestDraws);
+	std::vector<DrawArraysIndirectCommand> cmds(kTestDraws);
+	for (GLuint i = 0; i < kTestDraws; i++) {
+		float x = (i == kSeen) ? -0.5f : (i == kSeen + 1) ? 0.5f : 10.0f;
+		std::memcpy(&records[i * 8], &x, 4);
+		GLuint c[4] = { 10 + 40 * (i - kSeen), 20 + 40 * (i - kSeen), 30 + 40 * (i - kSeen), 40 + 40 * (i - kSeen) };
+		if (i == kSeen || i == kSeen + 1) std::memcpy(&records[i * 8 + 4], c, sizeof(c));
+		idValues[i] = i;
+		cmds[i] = { 3, 1, 3 * i, i };
+	}
+
+	glGenVertexArrays(1, &vao);
+	glBindVertexArray(vao);
+	glGenBuffers(1, &ids);
+	glBindBuffer(GL_ARRAY_BUFFER, ids);
+	glBufferData(GL_ARRAY_BUFFER, idValues.size() * sizeof(GLuint), idValues.data(), GL_STATIC_DRAW);
+	GLint loc = glGetAttribLocation(prog, "inDrawID");
+	glVertexAttribIPointer(loc, 1, GL_UNSIGNED_INT, 0, nullptr);
+	glVertexAttribDivisor(loc, 1);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	glGenBuffers(1, &data);
+	glBindBuffer(GL_TEXTURE_BUFFER, data);
+	glBufferData(GL_TEXTURE_BUFFER, records.size() * sizeof(GLuint), records.data(), GL_STATIC_DRAW);
+	glBindBuffer(GL_TEXTURE_BUFFER, 0);
+	glGenTextures(1, &tex);
+	glActiveTexture(GL_TEXTURE0 + R3DShader::kDrawDataUnit);
+	glBindTexture(GL_TEXTURE_BUFFER, tex);
+	glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32UI, data);
+	glActiveTexture(GL_TEXTURE0);
+
+	glGenBuffers(1, &ind);
+	glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ind);
+	glBufferData(GL_DRAW_INDIRECT_BUFFER, cmds.size() * sizeof(DrawArraysIndirectCommand), cmds.data(), GL_STATIC_DRAW);
+
+	glUseProgram(prog);
+	glUniform1i(glGetUniformLocation(prog, "drawData"), R3DShader::kDrawDataUnit);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_BLEND);
+	glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_CULL_FACE);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	while (glGetError() != GL_NO_ERROR) {}
+
+	bool works[4] = {};
+	char detail[3][64] = {};
+	for (int m = 1; m <= 3; m++) {
+		BatchMethod method = (BatchMethod)m;
+		// skip what the driver does not export
+		if ((method == BatchMethod::MultiDrawIndirect && !glMultiDrawArraysIndirect) ||
+			(method == BatchMethod::BaseInstance && !glDrawArraysInstancedBaseInstance)) {
+			snprintf(detail[m - 1], sizeof(detail[m - 1]), "not available");
+			continue;
+		}
+		glClearColor(0, 0, 0, 0);
+		glClear(GL_COLOR_BUFFER_BIT);
+		if (method == BatchMethod::MultiDrawIndirect) {
+			glEnableVertexAttribArray(loc);
+			glMultiDrawArraysIndirect(GL_TRIANGLES, (const void*)(uintptr_t)(kFirst * sizeof(DrawArraysIndirectCommand)), kTestDraws - kFirst, 0);
+		}
+		else if (method == BatchMethod::BaseInstance) {
+			glEnableVertexAttribArray(loc);
+			for (GLuint i = kFirst; i < kTestDraws; i++) {
+				glDrawArraysInstancedBaseInstance(GL_TRIANGLES, cmds[i].first, 3, 1, i);
+			}
+		}
+		else {
+			glDisableVertexAttribArray(loc);
+			for (GLuint i = kFirst; i < kTestDraws; i++) {
+				glVertexAttribI4ui(loc, i, 0, 0, 0);
+				glDrawArrays(GL_TRIANGLES, cmds[i].first, 3);
+			}
+		}
+		GLubyte px[8] = {};
+		glReadPixels(0, 0, 2, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+		GLenum err = glGetError();
+		static const GLubyte expect[8] = { 10, 20, 30, 40, 50, 60, 70, 80 };
+		works[m] = err == GL_NO_ERROR && std::memcmp(px, expect, 8) == 0;
+		snprintf(detail[m - 1], sizeof(detail[m - 1]), works[m] ? "ok" : "FAILED (%u %u %u %u / %u %u %u %u, error 0x%X)",
+			px[0], px[1], px[2], px[3], px[4], px[5], px[6], px[7], err);
+	}
+
+	// clean up and restore what the renderer expects
+	glUseProgram(0);
+	glBindVertexArray(0);
+	glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+	glActiveTexture(GL_TEXTURE0 + R3DShader::kDrawDataUnit);
+	glBindTexture(GL_TEXTURE_BUFFER, 0);
+	glActiveTexture(GL_TEXTURE0);
+	glDeleteBuffers(1, &ind);
+	glDeleteBuffers(1, &data);
+	glDeleteBuffers(1, &ids);
+	glDeleteTextures(1, &tex);
+	glDeleteVertexArrays(1, &vao);
+	glBindFramebuffer(GL_FRAMEBUFFER, prevFBO);
+	glDeleteFramebuffers(1, &fbo);
+	glDeleteTextures(1, &colour);
+	glDeleteProgram(prog);
+	glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
+
+	InfoLog("New3D batched draw self-test: multi-draw indirect %s; base instance %s; generic attribute %s",
+		detail[0], detail[1], detail[2]);
+
+	BatchMethod chosen = BatchMethod::None;
+	if (setting == 0) {
+		InfoLog("New3D: batched draws off (New3DBatchedDraws = 0); the self-test above is for information.");
+		return chosen;
+	}
+	if (setting >= 2 && setting <= 4) {
+		chosen = (BatchMethod)(setting - 1);		// forced, even if the test failed
+	}
+	else {
+		// nouveau (the Switch's Mesa 20): multi-draw indirect passes this test
+		// but hangs the GPU on real frames (frozen picture, then black), so
+		// it is only used when forced (New3DBatchedDraws = 2).
+		const char *vendor = (const char *)glGetString(GL_VENDOR);
+		bool skipMultiDraw = vendor && std::strstr(vendor, "nouveau");
+		for (int m = 1; m <= 3 && chosen == BatchMethod::None; m++) {
+			if (m == (int)BatchMethod::MultiDrawIndirect && skipMultiDraw) continue;
+			if (works[m]) chosen = (BatchMethod)m;
+		}
+	}
+	InfoLog("New3D: batched draws using %s%s.", names[(int)chosen],
+		chosen == BatchMethod::None ? " (per-mesh uniforms)" : (setting >= 2 ? " (forced by New3DBatchedDraws)" : ""));
+	return chosen;
+}
+
 bool CNew3D::RenderScene(int priority, bool renderOverlay, Layer layer)
 {
+	if (m_r3dShader.IsBatched()) {
+		return RenderSceneBatched(priority, renderOverlay, layer);
+	}
+
 	glActiveTexture(GL_TEXTURE0);
 	m_textureBank[0].Bind();
 	glActiveTexture(GL_TEXTURE1);
@@ -440,6 +857,7 @@ bool CNew3D::RenderScene(int priority, bool renderOverlay, Layer layer)
 #ifdef __SWITCH__
 				s_frameDraws++;
 				s_3dStats.draws++;
+				s_3dStats.glDrawCalls++;
 				s_3dStats.verts += mesh.vertexCount;
 #endif
 			}

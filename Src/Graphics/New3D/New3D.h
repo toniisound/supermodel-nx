@@ -216,6 +216,16 @@ private:
 	void GetCoordinates(int width, int height, UINT16 uIn, UINT16 vIn, float uvScale, float& uOut, float& vOut) const;
 
 	bool RenderScene(int priority, bool renderOverlay, Layer layer);		// returns if has overlay plane
+	bool RenderSceneBatched(int priority, bool renderOverlay, Layer layer);	// same, with batched draws (see R3DShader)
+	void CreateBatchedDrawResources();
+	void DestroyBatchedDrawResources();
+
+	// How runs of batched draws are submitted. Picked at start-up by a self-test
+	// (New3DBatchedDraws = 1) or forced (2, 3, 4); None = per-mesh uniforms.
+	enum class BatchMethod { None, MultiDrawIndirect, BaseInstance, GenericAttrib };
+	BatchMethod SelectBatchMethod(int setting);
+	BatchMethod m_batchMethod = BatchMethod::None;
+	GLint m_drawIDLoc = -1;
 	bool IsDynamicModel(UINT32 *data) const;				// check if the model has a colour palette
 	bool IsVROMModel(UINT32 modelAddr) const;
 	void DrawScrollFog();
@@ -294,6 +304,18 @@ private:
 	bool m_losPendingRead[4];
 
 	GLuint m_vao;
+
+	// Batched draws (R3DShader::IsBatched)
+	struct DrawArraysIndirectCommand { GLuint count, instanceCount, first, baseInstance; };
+	struct BatchStep { Node* node; const Mesh* mesh; };	// node != nullptr: viewport change, else one draw
+	static constexpr GLuint kMaxBatchedDraws = 65536;		// per RenderScene call (size of the draw ID buffer)
+	GLuint m_drawIDBuffer = 0;								// 0, 1, 2 ... read per instance: draw ID = baseInstance
+	GLuint m_drawDataBuffer = 0;							// draw records (R3DShader::PackDrawData)
+	GLuint m_drawDataTexture = 0;							// buffer texture over m_drawDataBuffer
+	GLuint m_indirectBuffer = 0;
+	std::vector<GLuint> m_drawData;
+	std::vector<DrawArraysIndirectCommand> m_drawCommands;
+	std::vector<BatchStep> m_batchSteps;
 	VBO m_vbo;								// large VBO: [ROM_VERTS][RAM_VERTS_slot0][RAM_VERTS_slot1]
 	int m_ramSlot = 0;						// alternates 0/1 each frame so write slot != GPU read slot → avoids GLES3 sync stall
 	R3DShader m_r3dShader;

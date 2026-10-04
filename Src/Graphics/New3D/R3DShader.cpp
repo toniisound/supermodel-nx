@@ -4,6 +4,8 @@
 #include "R3DShaderCommon.h"
 #include "../GLSLVersion.h"
 #include "OSD/Logger.h"
+#include <cstring>
+#include <regex>
 
 // having 2 sets of shaders to maintain is really less than ideal
 // but hopefully not too many breaking changes at this point
@@ -60,6 +62,225 @@ void R3DShader::Start()
 
 	m_dirtyMesh			= true;			// dirty means all the above are dirty, ie first run
 	m_dirtyModel		= true;
+	m_dirtyStencil		= true;
+}
+
+// ---------------------------------------------------------------------------
+// Batched drawing: shader variant
+//
+// The triangle shaders are reused as they are. Each per-draw uniform becomes a
+// plain global of the same name, filled by LoadDrawData() at the top of
+// main(): in the vertex shader from the draw record (buffer texture, indexed
+// by the instanced inDrawID attribute), in the fragment shader from flat
+// varyings the vertex shader passes on. So the shader bodies are unchanged.
+//
+// Draw record layout (kDrawDataTexels RGBA32UI texels, see PackDrawData):
+//   0-3  modelMat columns
+//   4    modelScale, nodeAlpha, microTextureMinLOD, fogIntensity   (float bits)
+//   5    shininess, specularValue, -, -                            (float bits)
+//   6    baseTexInfo (x + model texture offset X, y + offset Y, width, height)
+//   7    flags, microTextureID, baseTexType, texturePage
+// flags: bit 0 textureEnabled, 1 microTexture, 2 textureInverted,
+//   3 textureAlpha, 4 alphaTest, 5 lightEnabled, 6 specularEnabled,
+//   7 fixedShading, 8 smoothShading, 9 translatorMap, 10 polyAlpha,
+//   16-17 wrap mode U, 18-19 wrap mode V
+// ---------------------------------------------------------------------------
+
+namespace {
+
+const char* kBatchedVertexHeader = R"glsl(
+uniform usamplerBuffer	drawData;
+in uint					inDrawID;
+flat out vec4			fsDrawF;		// microTextureMinLOD, fogIntensity, shininess, specularValue
+flat out ivec4			fsDrawTex;		// baseTexInfo
+flat out ivec4			fsDrawI;		// flags, microTextureID, baseTexType, texturePage
+)glsl";
+
+const char* kBatchedVertexLoad = R"glsl(
+void LoadDrawData()
+{
+	int base = int(inDrawID) * 8;
+	modelMat = mat4(uintBitsToFloat(texelFetch(drawData, base + 0)),
+					uintBitsToFloat(texelFetch(drawData, base + 1)),
+					uintBitsToFloat(texelFetch(drawData, base + 2)),
+					uintBitsToFloat(texelFetch(drawData, base + 3)));
+	vec4 f4 = uintBitsToFloat(texelFetch(drawData, base + 4));
+	vec4 f5 = uintBitsToFloat(texelFetch(drawData, base + 5));
+	ivec4 i7 = ivec4(texelFetch(drawData, base + 7));
+	modelScale		= f4.x;
+	nodeAlpha		= f4.y;
+	translatorMap	= (i7.x & 0x200) != 0;
+	fsDrawF			= vec4(f4.z, f4.w, f5.x, f5.y);
+	fsDrawTex		= ivec4(texelFetch(drawData, base + 6));
+	fsDrawI			= i7;
+}
+
+)glsl";
+
+const char* kBatchedFragmentHeader = R"glsl(
+#define R3D_BATCHED
+flat in vec4			fsDrawF;
+flat in ivec4			fsDrawTex;
+flat in ivec4			fsDrawI;
+)glsl";
+
+const char* kBatchedFragmentLoad = R"glsl(
+void LoadDrawData()
+{
+	int flags			= fsDrawI.x;
+	textureEnabled		= (flags & 0x001) != 0;
+	microTexture		= (flags & 0x002) != 0;
+	textureInverted		= (flags & 0x004) != 0;
+	textureAlpha		= (flags & 0x008) != 0;
+	alphaTest			= (flags & 0x010) != 0;
+	lightEnabled		= (flags & 0x020) != 0;
+	specularEnabled		= (flags & 0x040) != 0;
+	fixedShading		= (flags & 0x080) != 0;
+	smoothShading		= (flags & 0x100) != 0;
+	polyAlpha			= (flags & 0x400) != 0;
+	textureWrapMode		= ivec2((flags >> 16) & 3, (flags >> 18) & 3);
+	microTextureID		= fsDrawI.y;
+	baseTexType			= fsDrawI.z;
+	texturePage			= fsDrawI.w;
+	baseTexInfo			= fsDrawTex;
+	microTextureMinLOD	= fsDrawF.x;
+	fogIntensity		= fsDrawF.y;
+	shininess			= fsDrawF.z;
+	specularValue		= fsDrawF.w;
+}
+
+)glsl";
+
+const char* kVertexDrawUniforms[]	= { "modelScale", "nodeAlpha", "modelMat", "translatorMap" };
+const char* kFragmentDrawUniforms[]	= { "textureEnabled", "microTexture", "microTextureMinLOD", "microTextureID",
+										"baseTexInfo", "baseTexType", "textureInverted", "textureAlpha", "alphaTest",
+										"textureWrapMode", "texturePage", "lightEnabled", "specularEnabled",
+										"specularValue", "shininess", "fogIntensity", "fixedShading", "smoothShading",
+										"polyAlpha" };
+
+// "uniform <type> <name>;" -> "<type> <name>;". False if not found exactly once.
+bool UniformToGlobal(std::string& src, const char* name)
+{
+	std::regex re(std::string("uniform([ \t]+[A-Za-z0-9_]+[ \t]+") + name + "[ \t]*;)");
+	auto begin = std::sregex_iterator(src.begin(), src.end(), re);
+	if (std::distance(begin, std::sregex_iterator()) != 1) {
+		return false;
+	}
+	src = std::regex_replace(src, re, "$1");
+	return true;
+}
+
+// Puts `loadFunc` before main() and a call to it as main()'s first statement.
+bool InjectLoad(std::string& src, const char* loadFunc)
+{
+	size_t mainPos = src.find("void main(");
+	if (mainPos == std::string::npos || src.find("void main(", mainPos + 1) != std::string::npos) {
+		return false;
+	}
+	size_t brace = src.find('{', mainPos);
+	if (brace == std::string::npos) {
+		return false;
+	}
+	src.insert(brace + 1, "\n\tLoadDrawData();\n");
+	src.insert(mainPos, loadFunc);
+	return true;
+}
+
+bool MakeBatchedShaders(const char* vShader, const char* fShader, const char* fCommon,
+						std::string& vOut, std::string& fOut, std::string& commonOut)
+{
+	vOut = vShader;
+	for (auto name : kVertexDrawUniforms) {
+		if (!UniformToGlobal(vOut, name)) return false;
+	}
+	if (!InjectLoad(vOut, kBatchedVertexLoad)) return false;
+	vOut = kBatchedVertexHeader + vOut;
+
+	fOut = fShader;
+	for (auto name : kFragmentDrawUniforms) {
+		if (!UniformToGlobal(fOut, name)) return false;
+	}
+	if (!InjectLoad(fOut, kBatchedFragmentLoad)) return false;
+	fOut = kBatchedFragmentHeader + fOut;
+
+	// A per-draw value is not a uniform, so index the sampler array with the
+	// branches the GLES build already uses.
+	commonOut = fCommon;
+	const std::string from = "#ifdef ANDROID";
+	const std::string to = "#if defined(ANDROID) || defined(R3D_BATCHED)";
+	for (size_t pos = 0; (pos = commonOut.find(from, pos)) != std::string::npos; pos += to.size()) {
+		commonOut.replace(pos, from.size(), to);
+	}
+	return true;
+}
+
+} // namespace
+
+void R3DShader::PackDrawData(const Model* model, const Mesh* m, GLuint* out)
+{
+	auto f2u = [](float f) { GLuint u; std::memcpy(&u, &f, sizeof(u)); return u; };
+
+	std::memcpy(out, model->modelMat, 16 * sizeof(GLuint));
+	out[16] = f2u(model->scale);
+	out[17] = f2u(model->alpha);
+	out[18] = f2u(m->microTextureMinLOD);
+	out[19] = f2u(m->fogIntensity);
+	out[20] = f2u(m->shininess);
+	out[21] = f2u(m->specularValue);
+	out[22] = 0;
+	out[23] = 0;
+	out[24] = (GLuint)(m->x + model->textureOffsetX);
+	out[25] = (GLuint)(m->y + model->textureOffsetY);
+	out[26] = (GLuint)m->width;
+	out[27] = (GLuint)m->height;
+	out[28] = (m->textured		? 0x001u : 0u)
+			| (m->microTexture	? 0x002u : 0u)
+			| (m->inverted		? 0x004u : 0u)
+			| (m->textureAlpha	? 0x008u : 0u)
+			| (m->alphaTest		? 0x010u : 0u)
+			| (m->lighting		? 0x020u : 0u)
+			| (m->specular		? 0x040u : 0u)
+			| (m->fixedShading	? 0x080u : 0u)
+			| (m->smoothShading	? 0x100u : 0u)
+			| (m->translatorMap	? 0x200u : 0u)
+			| (m->polyAlpha		? 0x400u : 0u)
+			| (((GLuint)m->wrapModeU & 3u) << 16)
+			| (((GLuint)m->wrapModeV & 3u) << 18);
+	out[29] = (GLuint)m->microTextureID;
+	out[30] = (GLuint)m->format;
+	out[31] = (GLuint)(m->page ^ model->page);
+}
+
+bool R3DShader::StencilChanges(const Mesh* m) const
+{
+	return m_dirtyStencil || m->noLosReturn != m_noLosReturn || m->layered != m_layered;
+}
+
+void R3DShader::SetMeshStencil(const Mesh* m)
+{
+	// Same GL calls, in the same order, as the end of SetMeshUniforms.
+	if (m_dirtyStencil || m->noLosReturn != m_noLosReturn) {
+		m_noLosReturn = m->noLosReturn;
+		glStencilFunc(GL_ALWAYS, m_noLosReturn << 7, 0b10000000);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+		glStencilMask(0b10000000);
+	}
+
+	if (m_dirtyStencil || m->layered != m_layered) {
+		m_layered = m->layered;
+		if (m_layered) {
+			glStencilFunc(GL_EQUAL, 0, 0b01111111);
+			glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+			glStencilMask(0b01111111);
+		}
+		else {
+			glStencilFunc(GL_ALWAYS, m_noLosReturn << 7, 0b10000000);
+			glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+			glStencilMask(0b10000000);
+		}
+	}
+
+	m_dirtyStencil = false;
 }
 
 bool R3DShader::LoadShader(const char* vertexShader, const char* fragmentShader)
@@ -83,12 +304,57 @@ bool R3DShader::LoadShader(const char* vertexShader, const char* fragmentShader)
 		fShader = fragmentShaderR3DQuads;
 	}
 
+	m_batched = false;
+#if !defined(ANDROID) && !defined(CORE_GLES)
+	m_vertexLocCache.clear();
+	if (!quads && !m_forceUnbatched && m_config["New3DBatchedDraws"].ValueAsDefault<int>(1) != 0) {
+		GLint major = 0, minor = 0;
+		glGetIntegerv(GL_MAJOR_VERSION, &major);
+		glGetIntegerv(GL_MINOR_VERSION, &minor);
+		std::string bv, bf, bc;
+		if (major < 4 || (major == 4 && minor < 3)) {
+			InfoLog("New3D: batched draws need OpenGL 4.3 (have %d.%d); using per-mesh uniforms.", major, minor);
+		}
+		else if (!MakeBatchedShaders(vShader, fShader, fragmentShaderR3DCommon, bv, bf, bc)) {
+			ErrorLog("New3D: could not build the batched shader source; using per-mesh uniforms.");
+		}
+		else if (BuildProgram(bv.c_str(), "", bf.c_str(), false, bc.c_str(), versionStr.c_str())) {
+			m_batched = true;
+			InfoLog("New3D: batched draw shader built (New3DBatchedDraws = 0 to disable).");
+		}
+		else {
+			ErrorLog("New3D: batched shader failed to build; using per-mesh uniforms.");
+			UnloadShader();
+		}
+	}
+#endif
+
+	if (!m_batched) {
+		BuildProgram(vShader, gShader, fShader, quads, fragmentShaderR3DCommon, versionStr.c_str());
+	}
+
+	GetUniformLocations();
+
+	if (m_batched) {
+		// Sampler units are fixed: set them once instead of per mesh.
+		glUseProgram(m_shaderProgram);
+		glUniform1i(m_locTextureBank[0], 0);
+		glUniform1i(m_locTextureBank[1], 1);
+		glUniform1i(glGetUniformLocation(m_shaderProgram, "drawData"), kDrawDataUnit);
+		glUseProgram(0);
+	}
+
+	return true;
+}
+
+bool R3DShader::BuildProgram(const char* vShader, const char* gShader, const char* fShader, bool quads, const char* fCommon, const char* versionStr)
+{
 	m_shaderProgram		= glCreateProgram();
 	m_vertexShader		= glCreateShader(GL_VERTEX_SHADER);
 	m_fragmentShader	= glCreateShader(GL_FRAGMENT_SHADER);
 
-	const char* vSources[] = { versionStr.c_str(), vShader };
-	const char* fSources[] = { versionStr.c_str(), fShader, fragmentShaderR3DCommon };
+	const char* vSources[] = { versionStr, vShader };
+	const char* fSources[] = { versionStr, fShader, fCommon };
 
 	glShaderSource(m_vertexShader, 2, vSources, nullptr);
 	glShaderSource(m_fragmentShader, 3, fSources, nullptr);
@@ -115,6 +381,62 @@ bool R3DShader::LoadShader(const char* vertexShader, const char* fragmentShader)
 
 	PrintProgramResult(m_shaderProgram);
 
+	GLint linked = GL_FALSE;
+	glGetProgramiv(m_shaderProgram, GL_LINK_STATUS, &linked);
+	return linked == GL_TRUE;
+}
+
+void R3DShader::ProbeBatchedShader()
+{
+	std::string versionStr = Graphics::GLSLVersion::GetR3D(false);
+	std::string bv, bf, bc;
+	if (!MakeBatchedShaders(vertexShaderR3D, fragmentShaderR3D, fragmentShaderR3DCommon, bv, bf, bc)) {
+		InfoLog("New3D probe: could not build the batched shader source.");
+		return;
+	}
+
+	auto compile = [](GLenum type, const char* const* src, int n, const char* what) {
+		GLuint s = glCreateShader(type);
+		glShaderSource(s, n, src, nullptr);
+		glCompileShader(s);
+		GLint ok = GL_FALSE, len = 0;
+		glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+		glGetShaderiv(s, GL_INFO_LOG_LENGTH, &len);
+		std::string msg(len > 1 ? len : 1, '\0');
+		if (len > 1) glGetShaderInfoLog(s, len, nullptr, &msg[0]);
+		InfoLog("New3D probe: batched %s shader %s%s%s", what, ok ? "compiled" : "FAILED to compile",
+			len > 1 ? ":\n" : "", len > 1 ? msg.c_str() : "");
+		return s;
+	};
+	const char* vSrc[] = { versionStr.c_str(), bv.c_str() };
+	const char* fSrc[] = { versionStr.c_str(), bf.c_str(), bc.c_str() };
+	GLuint v = compile(GL_VERTEX_SHADER, vSrc, 2, "vertex");
+	GLuint f = compile(GL_FRAGMENT_SHADER, fSrc, 3, "fragment");
+	GLuint p = glCreateProgram();
+	glAttachShader(p, v);
+	glAttachShader(p, f);
+	glLinkProgram(p);
+	GLint ok = GL_FALSE, len = 0;
+	glGetProgramiv(p, GL_LINK_STATUS, &ok);
+	glGetProgramiv(p, GL_INFO_LOG_LENGTH, &len);
+	std::string msg(len > 1 ? len : 1, '\0');
+	if (len > 1) glGetProgramInfoLog(p, len, nullptr, &msg[0]);
+	InfoLog("New3D probe: batched program %s (inDrawID at %d)%s%s", ok ? "linked" : "FAILED to link",
+		ok ? glGetAttribLocation(p, "inDrawID") : -1, len > 1 ? ":\n" : "", len > 1 ? msg.c_str() : "");
+	glDeleteProgram(p);
+	glDeleteShader(v);
+	glDeleteShader(f);
+}
+
+void R3DShader::DisableBatching()
+{
+	UnloadShader();
+	m_forceUnbatched = true;
+	LoadShader();
+}
+
+void R3DShader::GetUniformLocations()
+{
 	m_locTextureBank[0]		= glGetUniformLocation(m_shaderProgram, "textureBank[0]");
 	m_locTextureBank[1]		= glGetUniformLocation(m_shaderProgram, "textureBank[1]");
 	m_locTexturePage		= glGetUniformLocation(m_shaderProgram, "texturePage");
@@ -163,8 +485,6 @@ bool R3DShader::LoadShader(const char* vertexShader, const char* fragmentShader)
 	m_locDiscardAlpha		= glGetUniformLocation(m_shaderProgram, "discardAlpha");
 
 	m_locCota				= glGetUniformLocation(m_shaderProgram, "cota");
-
-	return true;
 }
 
 void R3DShader::UnloadShader()

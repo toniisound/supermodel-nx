@@ -145,17 +145,24 @@ It is not read from the SD card. Without it the header shows "SuperModel NX".
 - `JitNativeFP = 1` (default) also recompiles PowerPC floating point to ARM64. If a game
   misbehaves (AI, physics, timing), set it to `0` in that game's section.
 - Overclocking with sys-clk helps; `MultiThreaded = 1` spreads the main board, sound and
-  drive board over the CPU cores. In 3D-heavy races (e.g. Scud Race) the **GPU** is the
-  limit, so raise the GPU clock rather than the CPU's: in Scud Race races at full
-  resolution, a 768 MHz GPU gives 49-56 FPS and 998 MHz holds 60 FPS. (998 MHz is above
-  Nintendo's clock tables: watch temperature and battery.)
-- `RenderScale` (25-100, default 100): without overclocking, renders at that percentage of
-  the resolution and upscales. In Scud Race races at 768 MHz, 90 gives 57-60 FPS and 75
-  holds 60, at some cost in sharpness. `RenderScaleFilter` picks the upscale: `1`
-  Catmull-Rom (default, sharper) or `0` bilinear.
-- `New3DBatchedDraws` (default 1): per-mesh 3D state from one buffer instead of uniforms;
-  a start-up self-test picks the method (see the log). `0` restores the upstream path. Do
-  not use `2` (multi-draw indirect) on the Switch: it hangs the GPU.
+  drive board over the CPU cores. Scud Race holds 60 FPS in races at full resolution with
+  the GPU at 768 MHz.
+- `New3DAsyncLOS` (default 1): the line-of-sight depth reads some games make (Scud Race:
+  2 per frame) are copied on the GPU and read at the start of the next frame. Reading
+  them during the frame made the CPU wait for the GPU each time: 7-11 ms per frame in
+  Scud Race races. `0` restores the upstream behaviour.
+- `RenderScale` (25-100, default 100): renders at that percentage of the resolution and
+  upscales, for less GPU work. `RenderScaleFilter` picks the upscale: `1` Catmull-Rom
+  (default, sharper) or `0` bilinear.
+- `New3DBatchedDraws` (default 0): `1` takes per-mesh 3D state from one buffer instead of
+  uniforms (a start-up self-test picks the method, see the log). It saves CPU-side state
+  changes but costs GPU time, so it is off by default. Do not use `2` (multi-draw
+  indirect) on the Switch: it hangs the GPU.
+- `New3DEarlyDepth` (default 0): `1` makes the GPU produce the 3D depth itself, so hidden
+  pixels can be skipped before shading. Large gain on desktop GPUs, none measured on the
+  Switch.
+- The log reports GPU time per stage of the frame (`GPU per frame`) and where the 3D draw
+  passes spend their time (`3D draw passes`).
 - `ShowFrameRate = 1` ("Write FPS to Supermodel.log") writes the frame rate and timings
   to `Log/Supermodel.log` every 5 seconds.
 

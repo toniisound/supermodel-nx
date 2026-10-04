@@ -2248,21 +2248,27 @@ void CModel3::RenderFrame(void)
 #ifdef __SWITCH__
     // Where the render thread's time goes (log: "Render per frame").
     uint64_t tTex = SwitchProfile::NowNs();
+    SwitchProfile::GpuMark(SwitchProfile::GpuFrameStart);
     TileGen.BeginFrame();
     GPU.BeginFrame();               // performs the queued 3D texture uploads
     uint64_t t0 = SwitchProfile::NowNs();
     SwitchProfile::renderTexNs += t0 - tTex;
     TileGen.PreRenderFrame();
     TileGen.RenderFrameBottom();
+    SwitchProfile::GpuMark(SwitchProfile::Gpu2DBottomDone);
     uint64_t t1 = SwitchProfile::NowNs();
     GPU.RenderFrame();
+    SwitchProfile::GpuMark(SwitchProfile::Gpu3DDone);
     uint64_t t2 = SwitchProfile::NowNs();
     TileGen.RenderFrameTop();
+    SwitchProfile::GpuMark(SwitchProfile::Gpu2DTopDone);
     uint64_t t3 = SwitchProfile::NowNs();
     GPU.EndFrame();
     TileGen.EndFrame();
     uint64_t t4 = SwitchProfile::NowNs();
     m_superAA->Draw();
+    SwitchProfile::GpuMark(SwitchProfile::GpuFrameEnd);
+    SwitchProfile::GpuEndFrame();
     uint64_t t5 = SwitchProfile::NowNs();
     SwitchProfile::render2DNs += (t1 - t0) + (t3 - t2);
     SwitchProfile::render3DNs += t2 - t1;

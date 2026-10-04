@@ -18,6 +18,7 @@
 #include "Supermodel.h"
 #include "OSD/Logger.h"
 #include "CPU/PowerPC/PPCDisasm.h"
+#include <GL/glew.h>
 
 #include <algorithm>
 #include <cstring>
@@ -46,6 +47,19 @@ namespace SwitchProfile
 
   namespace
   {
+    // GPU timestamps. Each frame uses a free set of queries; a set stays
+    // pending until the GPU has its results (checked without waiting).
+    // Frames that find no free set are not measured.
+    constexpr int kGpuSets = 8;
+    enum { GpuSetFree, GpuSetMarking, GpuSetPending };
+    GLuint s_gpuQueries[kGpuSets][GpuStageCount];
+    int s_gpuState[kGpuSets];
+    unsigned s_gpuMarked[kGpuSets];     // bit per stage marked in that frame
+    bool s_gpuInit = false;
+    int s_gpuSet = -1;                  // set being marked this frame, -1: none
+    uint64_t s_gpuStageNs[GpuStageCount];
+    uint64_t s_gpuFrames = 0;
+
     // Fallback counts: primary opcode (64) and the extended opcodes of the
     // four extended groups (19, 31, 59, 63), 1024 each.
     uint32_t s_primary[64];
@@ -93,6 +107,60 @@ namespace SwitchProfile
     s_pcCount[slot]++;
   }
 
+  // Reads the results of pending sets the GPU has finished; never waits.
+  static void GpuHarvest()
+  {
+    for (int set = 0; set < kGpuSets; set++) {
+      if (s_gpuState[set] != GpuSetPending)
+        continue;
+      GLint available = 0;
+      glGetQueryObjectiv(s_gpuQueries[set][GpuFrameEnd], GL_QUERY_RESULT_AVAILABLE, &available);
+      if (!available)
+        continue;
+      GLuint64 t[GpuStageCount];
+      for (int i = 0; i < GpuStageCount; i++)
+        glGetQueryObjectui64v(s_gpuQueries[set][i], GL_QUERY_RESULT, &t[i]);
+      for (int i = 1; i < GpuStageCount; i++)
+        s_gpuStageNs[i] += t[i] - t[i - 1];
+      s_gpuFrames++;
+      s_gpuState[set] = GpuSetFree;
+    }
+  }
+
+  void GpuMark(GpuStage stage)
+  {
+    if (stage == GpuFrameStart) {
+      if (!s_gpuInit) {
+        glGenQueries(kGpuSets * GpuStageCount, &s_gpuQueries[0][0]);
+        for (int set = 0; set < kGpuSets; set++) s_gpuState[set] = GpuSetFree;
+        s_gpuInit = true;
+      }
+      GpuHarvest();
+      s_gpuSet = -1;
+      for (int set = 0; set < kGpuSets && s_gpuSet < 0; set++) {
+        if (s_gpuState[set] == GpuSetFree) s_gpuSet = set;
+      }
+      if (s_gpuSet < 0)
+        return;                         // all sets still pending: skip this frame
+      s_gpuState[s_gpuSet] = GpuSetMarking;
+      s_gpuMarked[s_gpuSet] = 0;
+    }
+    if (s_gpuSet < 0)
+      return;
+    glQueryCounter(s_gpuQueries[s_gpuSet][stage], GL_TIMESTAMP);
+    s_gpuMarked[s_gpuSet] |= 1u << stage;
+  }
+
+  void GpuEndFrame()
+  {
+    if (s_gpuSet < 0)
+      return;
+    // Only complete frames count (white frames skip the inner 3D marks)
+    const unsigned all = (1u << GpuStageCount) - 1;
+    s_gpuState[s_gpuSet] = (s_gpuMarked[s_gpuSet] == all) ? GpuSetPending : GpuSetFree;
+    s_gpuSet = -1;
+  }
+
   void Report()
   {
     if (frames == 0)
@@ -138,6 +206,21 @@ namespace SwitchProfile
       InfoLog("Render per frame (ms): 3D texture uploads %.2f, 2D layers %.2f, 3D scene %.2f, end of frame %.2f, copy to screen %.2f, swap %.2f",
               renderTexNs / 1e6 / rf, render2DNs / 1e6 / rf, render3DNs / 1e6 / rf, renderEndNs / 1e6 / rf, renderAANs / 1e6 / rf, swapNs / 1e6 / rf);
     }
+    if (s_gpuInit)
+      GpuHarvest();
+    if (s_gpuFrames)
+    {
+      const double gf = double(s_gpuFrames) * 1e6;
+      InfoLog("GPU per frame (ms): uploads + 2D bottom %.2f, 3D setup %.2f, 3D layers %.2f, 3D composite %.2f, 2D top %.2f, final copy %.2f, total %.2f (%llu frames)",
+              s_gpuStageNs[Gpu2DBottomDone] / gf, s_gpuStageNs[Gpu3DDrawStart] / gf, s_gpuStageNs[Gpu3DDrawEnd] / gf,
+              s_gpuStageNs[Gpu3DDone] / gf, s_gpuStageNs[Gpu2DTopDone] / gf, s_gpuStageNs[GpuFrameEnd] / gf,
+              (s_gpuStageNs[Gpu2DBottomDone] + s_gpuStageNs[Gpu3DDrawStart] + s_gpuStageNs[Gpu3DDrawEnd] + s_gpuStageNs[Gpu3DDone] +
+               s_gpuStageNs[Gpu2DTopDone] + s_gpuStageNs[GpuFrameEnd]) / gf,
+              (unsigned long long)s_gpuFrames);
+    }
+    std::memset(s_gpuStageNs, 0, sizeof(s_gpuStageNs));
+    s_gpuFrames = 0;
+
     renderTexNs = render2DNs = render3DNs = renderEndNs = renderAANs = swapNs = renderFrames = 0;
 
     if (audioCallbacks)

@@ -32,8 +32,8 @@ public:
 	static constexpr int kDrawDataTexels	= 8;			// RGBA32UI texels per draw record
 	static constexpr int kDrawDataUnit		= 2;			// texture unit of the draw record buffer texture
 	bool	IsBatched			() const { return m_batched; }
+	void	SetHardwareDepth	(bool on) { m_hwDepth = on; }	// before LoadShader: no gl_FragDepth write (needs GL_ZERO_TO_ONE clip control)
 	void	DisableBatching		();							// rebuild the normal (per-mesh uniform) program
-	void	ProbeBatchedShader	();							// diagnostics only: build the batched program, log the result, delete it
 	static void PackDrawData	(const Model* model, const Mesh* mesh, GLuint* out);	// writes kDrawDataTexels * 4 words
 	bool	StencilChanges		(const Mesh* m) const;		// would SetMeshStencil change GL state?
 	void	SetMeshStencil		(const Mesh* m);			// the stencil part of SetMeshUniforms
@@ -47,6 +47,7 @@ private:
 
 	bool m_batched = false;
 	bool m_forceUnbatched = false;
+	bool m_hwDepth = false;
 	bool m_dirtyStencil = true;
 
 	// run-time config

@@ -60,6 +60,23 @@ namespace SwitchProfile
   extern uint64_t audioUnderRuns;       // emulator ring buffer under-runs (stale audio replayed)
   extern uint64_t audioOverRuns;        // emulator ring buffer over-runs (a frame of audio dropped)
 
+  // GPU time per stage of the rendered frame, from GL timestamp queries read
+  // a few frames later (never waits for the GPU). Marks are issued in order
+  // by CModel3::RenderFrame and CNew3D::RenderFrame on the render thread.
+  enum GpuStage
+  {
+    GpuFrameStart,      // before texture uploads and the bottom 2D layers
+    Gpu2DBottomDone,
+    Gpu3DDrawStart,     // after the 3D vertex upload
+    Gpu3DDrawEnd,       // after all 3D layers (opaque and transparent passes)
+    Gpu3DDone,          // after the 3D composite
+    Gpu2DTopDone,
+    GpuFrameEnd,        // after the final copy to the screen
+    GpuStageCount
+  };
+  void GpuMark(GpuStage stage);
+  void GpuEndFrame();
+
   // Interpreter fallbacks from JIT code (ppc_dispatch_opcode)
   void CountFallback(uint32_t opcode);
 

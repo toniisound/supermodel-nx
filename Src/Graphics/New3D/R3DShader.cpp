@@ -307,7 +307,7 @@ bool R3DShader::LoadShader(const char* vertexShader, const char* fragmentShader)
 	m_batched = false;
 #if !defined(ANDROID) && !defined(CORE_GLES)
 	m_vertexLocCache.clear();
-	if (!quads && !m_forceUnbatched && m_config["New3DBatchedDraws"].ValueAsDefault<int>(1) != 0) {
+	if (!quads && !m_forceUnbatched && m_config["New3DBatchedDraws"].ValueAsDefault<int>(0) != 0) {
 		GLint major = 0, minor = 0;
 		glGetIntegerv(GL_MAJOR_VERSION, &major);
 		glGetIntegerv(GL_MINOR_VERSION, &minor);
@@ -320,7 +320,7 @@ bool R3DShader::LoadShader(const char* vertexShader, const char* fragmentShader)
 		}
 		else if (BuildProgram(bv.c_str(), "", bf.c_str(), false, bc.c_str(), versionStr.c_str())) {
 			m_batched = true;
-			InfoLog("New3D: batched draw shader built (New3DBatchedDraws = 0 to disable).");
+			InfoLog("New3D: batched draw shader built (New3DBatchedDraws = 1).");
 		}
 		else {
 			ErrorLog("New3D: batched shader failed to build; using per-mesh uniforms.");
@@ -354,10 +354,10 @@ bool R3DShader::BuildProgram(const char* vShader, const char* gShader, const cha
 	m_fragmentShader	= glCreateShader(GL_FRAGMENT_SHADER);
 
 	const char* vSources[] = { versionStr, vShader };
-	const char* fSources[] = { versionStr, fShader, fCommon };
+	const char* fSources[] = { versionStr, m_hwDepth ? "#define R3D_HW_DEPTH\n" : "", fShader, fCommon };
 
 	glShaderSource(m_vertexShader, 2, vSources, nullptr);
-	glShaderSource(m_fragmentShader, 3, fSources, nullptr);
+	glShaderSource(m_fragmentShader, 4, fSources, nullptr);
 
 	glCompileShader(m_vertexShader);
 	glCompileShader(m_fragmentShader);
@@ -384,48 +384,6 @@ bool R3DShader::BuildProgram(const char* vShader, const char* gShader, const cha
 	GLint linked = GL_FALSE;
 	glGetProgramiv(m_shaderProgram, GL_LINK_STATUS, &linked);
 	return linked == GL_TRUE;
-}
-
-void R3DShader::ProbeBatchedShader()
-{
-	std::string versionStr = Graphics::GLSLVersion::GetR3D(false);
-	std::string bv, bf, bc;
-	if (!MakeBatchedShaders(vertexShaderR3D, fragmentShaderR3D, fragmentShaderR3DCommon, bv, bf, bc)) {
-		InfoLog("New3D probe: could not build the batched shader source.");
-		return;
-	}
-
-	auto compile = [](GLenum type, const char* const* src, int n, const char* what) {
-		GLuint s = glCreateShader(type);
-		glShaderSource(s, n, src, nullptr);
-		glCompileShader(s);
-		GLint ok = GL_FALSE, len = 0;
-		glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
-		glGetShaderiv(s, GL_INFO_LOG_LENGTH, &len);
-		std::string msg(len > 1 ? len : 1, '\0');
-		if (len > 1) glGetShaderInfoLog(s, len, nullptr, &msg[0]);
-		InfoLog("New3D probe: batched %s shader %s%s%s", what, ok ? "compiled" : "FAILED to compile",
-			len > 1 ? ":\n" : "", len > 1 ? msg.c_str() : "");
-		return s;
-	};
-	const char* vSrc[] = { versionStr.c_str(), bv.c_str() };
-	const char* fSrc[] = { versionStr.c_str(), bf.c_str(), bc.c_str() };
-	GLuint v = compile(GL_VERTEX_SHADER, vSrc, 2, "vertex");
-	GLuint f = compile(GL_FRAGMENT_SHADER, fSrc, 3, "fragment");
-	GLuint p = glCreateProgram();
-	glAttachShader(p, v);
-	glAttachShader(p, f);
-	glLinkProgram(p);
-	GLint ok = GL_FALSE, len = 0;
-	glGetProgramiv(p, GL_LINK_STATUS, &ok);
-	glGetProgramiv(p, GL_INFO_LOG_LENGTH, &len);
-	std::string msg(len > 1 ? len : 1, '\0');
-	if (len > 1) glGetProgramInfoLog(p, len, nullptr, &msg[0]);
-	InfoLog("New3D probe: batched program %s (inDrawID at %d)%s%s", ok ? "linked" : "FAILED to link",
-		ok ? glGetAttribLocation(p, "inDrawID") : -1, len > 1 ? ":\n" : "", len > 1 ? msg.c_str() : "");
-	glDeleteProgram(p);
-	glDeleteShader(v);
-	glDeleteShader(f);
 }
 
 void R3DShader::DisableBatching()

@@ -146,7 +146,9 @@ void main()
 		discard;		//emulate back face culling here
 	}
 
-	gl_FragDepth = projMat[3][2] * gl_FragCoord.w;
+#ifndef R3D_HW_DEPTH
+	gl_FragDepth = projMat[3][2] * gl_FragCoord.w;	// (with R3D_HW_DEPTH the rasteriser produces this value, see CNew3D::m_clipControl)
+#endif
 
 	fogData = vec4(fogColour.rgb * fogAmbient, CalcFog());
 	tex1Data = vec4(1.0, 1.0, 1.0, 1.0);

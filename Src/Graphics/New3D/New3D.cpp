@@ -9,6 +9,9 @@
 #include "Util/BitCast.h"
 #include "OSD/Switch/SwitchGLDebug.h"
 #include "OSD/Logger.h"
+#ifdef __SWITCH__
+#include <SDL2/SDL.h>		// SDL_GL_GetProcAddress (glad only loads glClipControl for GL 4.5)
+#endif
 
 #ifdef __SWITCH__
 #include "OSD/Switch/SwitchProfile.h"
@@ -27,6 +30,9 @@ namespace
 		unsigned lastNodes = 0;
 		// Where "3D scene" time goes (ns, summed over the report period)
 		unsigned long long losNs = 0, buildNs = 0, uploadNs = 0, drawNs = 0, compositeNs = 0;
+		// split of drawNs
+		unsigned long long sceneNs = 0, losPassNs = 0, storeDepthNs = 0;
+		unsigned long long losReads = 0, losWaits = 0;
 	} s_3dStats;
 
 	void Switch3DEndFrame(size_t nodes, unsigned framesDraws)
@@ -45,6 +51,10 @@ namespace
 		InfoLog("3D per frame (ms): LOS readback %.2f, scene build %.2f, vertex upload %.2f, draw passes %.2f, composite %.2f",
 			st.losNs / 1e6 / st.frames, st.buildNs / 1e6 / st.frames, st.uploadNs / 1e6 / st.frames,
 			st.drawNs / 1e6 / st.frames, st.compositeNs / 1e6 / st.frames);
+		InfoLog("3D draw passes (ms): draw calls %.2f, LOS %.2f (%.1f reads/frame, %llu waited), depth copies %.2f, other (clears, buffer switches) %.2f",
+			st.sceneNs / 1e6 / st.frames, st.losPassNs / 1e6 / st.frames, double(st.losReads) / st.frames, st.losWaits,
+			st.storeDepthNs / 1e6 / st.frames,
+			(double(st.drawNs) - st.sceneNs - st.losPassNs - st.storeDepthNs) / 1e6 / st.frames);
 		st = Switch3DStats();
 	}
 
@@ -54,6 +64,13 @@ namespace
 	// whether a problem comes from the 3D or the 2D side.
 	bool s_debugSkip3D = false;
 }
+#endif
+
+// Adds the CPU time of `expr` to s_3dStats.field (Switch diagnostics)
+#ifdef __SWITCH__
+#define TIME_3D(field, expr) do { uint64_t t_ = SwitchProfile::NowNs(); expr; s_3dStats.field += SwitchProfile::NowNs() - t_; } while (0)
+#else
+#define TIME_3D(field, expr) do { expr; } while (0)
 #endif
 
 #define MAX_RAM_VERTS 300000
@@ -108,17 +125,34 @@ CNew3D::CNew3D(const Util::Config::Node &config, const std::string& gameName) :
 		InfoLog("DebugSkip3D: 3D rendering disabled");
 #endif
 
+	if (!config["QuadRendering"].ValueAs<bool>() && config["New3DEarlyDepth"].ValueAsDefault<int>(0) != 0) {
+		GLint major = 0, minor = 0, numExt = 0;
+		glGetIntegerv(GL_MAJOR_VERSION, &major);
+		glGetIntegerv(GL_MINOR_VERSION, &minor);
+		glGetIntegerv(GL_NUM_EXTENSIONS, &numExt);
+		bool supported = major > 4 || (major == 4 && minor >= 5);
+		for (GLint i = 0; i < numExt && !supported; i++) {
+			const char* ext = (const char*)glGetStringi(GL_EXTENSIONS, i);
+			supported = ext && std::strcmp(ext, "GL_ARB_clip_control") == 0;
+		}
+		if (supported) {
+			m_clipControl = glClipControl;
+#ifdef __SWITCH__
+			if (!m_clipControl) {
+				m_clipControl = (PFNGLCLIPCONTROLPROC)SDL_GL_GetProcAddress("glClipControl");
+			}
+#endif
+		}
+		InfoLog("New3D: early depth test %s", m_clipControl ? "on (New3DEarlyDepth = 1)" : "off: no glClipControl");
+	}
+	m_r3dShader.SetHardwareDepth(m_clipControl != nullptr);
+
 	m_r3dShader.LoadShader();
 	if (m_r3dShader.IsBatched()) {
-		m_batchMethod = SelectBatchMethod(config["New3DBatchedDraws"].ValueAsDefault<int>(1));
+		m_batchMethod = SelectBatchMethod(config["New3DBatchedDraws"].ValueAsDefault<int>(0));
 		if (m_batchMethod == BatchMethod::None) {
 			m_r3dShader.DisableBatching();
 		}
-	}
-	else if (config["New3DBatchedDraws"].ValueAsDefault<int>(1) == 0 && !config["QuadRendering"].ValueAs<bool>()) {
-		// Batching is off: still test it, for the log only
-		SelectBatchMethod(0);
-		m_r3dShader.ProbeBatchedShader();
 	}
 	glUseProgram(0);
 
@@ -164,6 +198,29 @@ CNew3D::CNew3D(const Util::Config::Node &config, const std::string& gameName) :
 		glBufferData(GL_PIXEL_PACK_BUFFER, 8, nullptr, GL_DYNAMIC_READ);
 	}
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+	m_asyncLos = config["New3DAsyncLOS"].ValueAsDefault<int>(1) != 0;
+	if (m_asyncLos) {
+		// 1x1 copies of the 3D depth/stencil (same format, for glBlitFramebuffer)
+#ifdef SWITCH_DEPTH24
+		const GLenum depthFormat = GL_DEPTH24_STENCIL8;
+#else
+		const GLenum depthFormat = GL_DEPTH32F_STENCIL8;
+#endif
+		GLint prevFBO = 0;
+		glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFBO);
+		glGenFramebuffers(4, m_losFBO);
+		glGenRenderbuffers(4, m_losRB);
+		for (int i = 0; i < 4; i++) {
+			glBindRenderbuffer(GL_RENDERBUFFER, m_losRB[i]);
+			glRenderbufferStorage(GL_RENDERBUFFER, depthFormat, 1, 1);
+			glBindFramebuffer(GL_FRAMEBUFFER, m_losFBO[i]);
+			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_losRB[i]);
+		}
+		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+		glBindFramebuffer(GL_FRAMEBUFFER, prevFBO);
+	}
+	InfoLog("New3D: line-of-sight reads %s", m_asyncLos ? "deferred to the next frame (New3DAsyncLOS = 0 to disable)" : "read during the frame");
 }
 
 CNew3D::~CNew3D()
@@ -178,6 +235,16 @@ CNew3D::~CNew3D()
 	if (m_losPBO[0]) {
 		glDeleteBuffers(4, m_losPBO);
 		memset(m_losPBO, 0, sizeof(m_losPBO));
+	}
+	for (int i = 0; i < 4; i++) {
+		if (m_losFence[i]) glDeleteSync(m_losFence[i]);
+		m_losFence[i] = 0;
+	}
+	if (m_losFBO[0]) {
+		glDeleteFramebuffers(4, m_losFBO);
+		glDeleteRenderbuffers(4, m_losRB);
+		memset(m_losFBO, 0, sizeof(m_losFBO));
+		memset(m_losRB, 0, sizeof(m_losRB));
 	}
 
 	m_r3dShader.UnloadShader();
@@ -782,10 +849,6 @@ void main(void)
 		detail[0], detail[1], detail[2]);
 
 	BatchMethod chosen = BatchMethod::None;
-	if (setting == 0) {
-		InfoLog("New3D: batched draws off (New3DBatchedDraws = 0); the self-test above is for information.");
-		return chosen;
-	}
 	if (setting >= 2 && setting <= 4) {
 		chosen = (BatchMethod)(setting - 1);		// forced, even if the test failed
 	}
@@ -887,6 +950,10 @@ void CNew3D::SetRenderStates()
 
 	m_r3dShader.SetShader(true);
 
+	if (m_clipControl) {
+		m_clipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);	// depth = near/w, as the shader would write
+	}
+
 	glDepthFunc		(GL_GEQUAL);
 	glEnable		(GL_DEPTH_TEST);
 	glDepthMask		(GL_TRUE);
@@ -906,6 +973,10 @@ void CNew3D::DisableRenderStates()
 	glBindVertexArray(0);
 
 	m_r3dShader.SetShader(false);
+
+	if (m_clipControl) {
+		m_clipControl(GL_LOWER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
+	}
 
 	glDisable(GL_STENCIL_TEST);
 }
@@ -1006,6 +1077,7 @@ void CNew3D::RenderFrame(void)
 #ifdef __SWITCH__
 	uint64_t tDraw = SwitchProfile::NowNs();
 	s_3dStats.uploadNs += tDraw - tUpload;
+	SwitchProfile::GpuMark(SwitchProfile::Gpu3DDrawStart);
 #endif
 	m_r3dFrameBuffers.SetFBO(Layer::colour);		// colour will draw to all 3 buffers. For regular opaque pixels the transparent layers will be essentially masked
 	glClear(GL_COLOR_BUFFER_BIT);
@@ -1032,26 +1104,27 @@ void CNew3D::RenderFrame(void)
 
 			m_r3dShader.DiscardAlpha(true);
 			m_r3dShader.SetLayer(Layer::colour);
-			bool hasOverlay = RenderScene(pri, renderOverlay, Layer::colour);
+			bool hasOverlay = false;
+			TIME_3D(sceneNs, hasOverlay = RenderScene(pri, renderOverlay, Layer::colour));
 
 			if (!renderOverlay) {
-				ProcessLos(pri);
+				TIME_3D(losPassNs, ProcessLos(pri));
 			}
 
 			if (HasTransparentMeshes(pri, renderOverlay)) {
 				glDepthFunc(GL_GREATER);
 				m_r3dShader.DiscardAlpha(false);
 
-				m_r3dFrameBuffers.StoreDepth();
+				TIME_3D(storeDepthNs, m_r3dFrameBuffers.StoreDepth());
 				m_r3dShader.SetLayer(Layer::trans1);
 				m_r3dFrameBuffers.SetFBO(Layer::trans1);
-				RenderScene(pri, renderOverlay, Layer::trans1);
+				TIME_3D(sceneNs, RenderScene(pri, renderOverlay, Layer::trans1));
 
 				// No RestoreDepth blit — SetFBO(trans2) binds m_frameBufferIDTrans2
 				// which is pre-wired to the copy depth (= opaque depth from StoreDepth).
 				m_r3dShader.SetLayer(Layer::trans2);
 				m_r3dFrameBuffers.SetFBO(Layer::trans2);
-				RenderScene(pri, renderOverlay, Layer::trans2);
+				TIME_3D(sceneNs, RenderScene(pri, renderOverlay, Layer::trans2));
 			}
 
 			DisableRenderStates();
@@ -1064,6 +1137,7 @@ void CNew3D::RenderFrame(void)
 #ifdef __SWITCH__
 	uint64_t tComposite = SwitchProfile::NowNs();
 	s_3dStats.drawNs += tComposite - tDraw;
+	SwitchProfile::GpuMark(SwitchProfile::Gpu3DDrawEnd);
 #endif
 	m_r3dFrameBuffers.SetFBO(Layer::none);
 
@@ -2247,6 +2321,44 @@ bool CNew3D::HasTransparentMeshes(int priority, bool renderOverlay) const
 
 void CNew3D::CollectLosResults()
 {
+	if (m_asyncLos) {
+		GLint prevRead = 0;
+		glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
+		for (int i = 0; i < 4; i++) {
+			if (!m_losPendingRead[i] || !m_losFence[i]) continue;
+			// Normally passed long ago (last frame's copy); wait only if not
+			if (glClientWaitSync(m_losFence[i], GL_SYNC_FLUSH_COMMANDS_BIT, 0) == GL_TIMEOUT_EXPIRED) {
+#ifdef __SWITCH__
+				s_3dStats.losWaits++;
+#endif
+				glClientWaitSync(m_losFence[i], GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ull);
+			}
+			glDeleteSync(m_losFence[i]);
+			m_losFence[i] = 0;
+
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, m_losFBO[i]);
+#ifdef SWITCH_DEPTH24
+			GLuint packed = 0;
+			glReadPixels(0, 0, 1, 1, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, &packed);
+			GLubyte stencilVal = GLubyte(packed & 0xFF);
+			float zVal = (float(packed >> 8) / 16777215.0f) / NEAR_PLANE;
+#else
+			float range[2] = {};
+			glReadPixels(0, 0, 1, 1, GL_DEPTH_STENCIL, GL_FLOAT_32_UNSIGNED_INT_24_8_REV, range);
+			GLubyte stencilVal = Util::FloatAsInt32(range[1]);
+			float zVal = range[0] / NEAR_PLANE;
+#endif
+			stencilVal &= 0x80;
+			auto zValP = reinterpret_cast<unsigned char*>(&zVal);
+			if (stencilVal == 0) zValP[0] |= 1;
+			else                 zValP[0] &= 0xFE;
+			m_losBack->value[i] = zVal;
+			m_losPendingRead[i] = false;
+		}
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, prevRead);
+		return;
+	}
+
 	for (int i = 0; i < 4; i++) {
 		if (!m_losPendingRead[i] || !m_losPBO[i]) continue;
 		glBindBuffer(GL_PIXEL_PACK_BUFFER, m_losPBO[i]);
@@ -2281,8 +2393,26 @@ bool CNew3D::ProcessLos(int priority)
 
 				int losX, losY;
 				TranslateLosPosition(n.viewport.losPosX, n.viewport.losPosY, losX, losY);
+#ifdef __SWITCH__
+				s_3dStats.losReads++;
+#endif
 
-				if (m_losPBO[priority]) {
+				if (m_asyncLos) {
+					// GPU copy of the pixel + fence; CollectLosResults reads it next frame
+					GLint fbo = 0;
+					glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fbo);
+					GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+					glDisable(GL_SCISSOR_TEST);		// would clip the copy into the 1x1 buffer
+					glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+					glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_losFBO[priority]);
+					glBlitFramebuffer(losX, losY, losX + 1, losY + 1, 0, 0, 1, 1, GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, GL_NEAREST);
+					glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+					if (scissor) glEnable(GL_SCISSOR_TEST);
+					if (m_losFence[priority]) glDeleteSync(m_losFence[priority]);
+					m_losFence[priority] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+					m_losPendingRead[priority] = true;
+				}
+				else if (m_losPBO[priority]) {
 					// Async read: result collected at start of next frame via CollectLosResults()
 					glBindBuffer(GL_PIXEL_PACK_BUFFER, m_losPBO[priority]);
 #ifdef SWITCH_DEPTH24

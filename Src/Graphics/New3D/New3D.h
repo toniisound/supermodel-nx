@@ -226,6 +226,14 @@ private:
 	BatchMethod SelectBatchMethod(int setting);
 	BatchMethod m_batchMethod = BatchMethod::None;
 	GLint m_drawIDLoc = -1;
+
+	// Early depth (New3DEarlyDepth = 1, off by default: no gain measured on the
+	// Switch's nouveau, and depth then differs from the shader's in the last
+	// bits): GL_ZERO_TO_ONE clip control makes the
+	// rasterised depth near/w, the value the shader otherwise writes to
+	// gl_FragDepth. Without that write the GPU can reject hidden fragments
+	// before shading them. Null when off or not supported.
+	PFNGLCLIPCONTROLPROC m_clipControl = nullptr;
 	bool IsDynamicModel(UINT32 *data) const;				// check if the model has a colour palette
 	bool IsVROMModel(UINT32 modelAddr) const;
 	void DrawScrollFog();
@@ -302,6 +310,15 @@ private:
 
 	GLuint m_losPBO[4];
 	bool m_losPendingRead[4];
+
+	// Async LOS (New3DAsyncLOS = 1): ProcessLos copies the one depth/stencil
+	// pixel into a 1x1 frame buffer on the GPU and sets a fence; the next
+	// frame reads it once the fence has passed. No readback in the middle of
+	// the frame, so the CPU does not wait there for the GPU to catch up.
+	bool m_asyncLos = false;
+	GLuint m_losFBO[4] = {};
+	GLuint m_losRB[4] = {};
+	GLsync m_losFence[4] = {};
 
 	GLuint m_vao;
 

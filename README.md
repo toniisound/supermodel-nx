@@ -15,6 +15,12 @@
 > Not affiliated with or endorsed by Sega or Nintendo. Sega, Model 3 and the game
 > titles are trademarks of their respective owners.
 
+## What's new in 1.2.1
+
+- The deferred line-of-sight values are read with one call per frame instead of one per
+  check (each read is a GPU round trip on the Switch): Scud Race 1.1-1.4 → 0.9-1.0 ms per
+  frame. Races: 60 FPS throughout at a 768 MHz GPU.
+
 ## What's new in 1.2.0
 
 - **No more mid-frame stalls in 3D games that use line of sight** (`New3DAsyncLOS`, on by
@@ -44,7 +50,7 @@
 
 ## Credits
 
-- **SuperModel NX**: Nintendo Switch fork by ToniiSound; 1.1.0 and 1.2.0 audio and
+- **SuperModel NX**: Nintendo Switch fork by ToniiSound; 1.1 and 1.2 audio and
   performance work by Thorhax.
 - **Supermodel**: © 2003-2025 The Supermodel Team (Bart Trzynadlowski, Nik Henson,
   Ian Curtis and contributors). <https://www.supermodel3.com>

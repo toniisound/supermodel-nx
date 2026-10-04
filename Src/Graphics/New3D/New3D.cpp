@@ -11,6 +11,7 @@
 
 #ifdef __SWITCH__
 #include "OSD/Logger.h"
+#include "OSD/Switch/SwitchProfile.h"
 
 // Switch diagnostics: every 300 frames (~5 s) the log gets what the 3D
 // renderer did (frames, white "block culling" frames, draw calls, vertices,
@@ -23,6 +24,8 @@ namespace
 		unsigned frames = 0, whiteFrames = 0, emptyFrames = 0;
 		unsigned long long draws = 0, verts = 0;
 		unsigned lastNodes = 0;
+		// Where "3D scene" time goes (ns, summed over the report period)
+		unsigned long long losNs = 0, buildNs = 0, uploadNs = 0, drawNs = 0, compositeNs = 0;
 	} s_3dStats;
 
 	void Switch3DEndFrame(size_t nodes, unsigned framesDraws)
@@ -38,6 +41,9 @@ namespace
 		InfoLog("3D: %u frames (%u white, %u without draws), %llu draws/frame, %llu verts/frame, %u viewports",
 			st.frames, st.whiteFrames, st.emptyFrames,
 			st.draws / st.frames, st.verts / st.frames, st.lastNodes);
+		InfoLog("3D per frame (ms): LOS readback %.2f, scene build %.2f, vertex upload %.2f, draw passes %.2f, composite %.2f",
+			st.losNs / 1e6 / st.frames, st.buildNs / 1e6 / st.frames, st.uploadNs / 1e6 / st.frames,
+			st.drawNs / 1e6 / st.frames, st.compositeNs / 1e6 / st.frames);
 		st = Switch3DStats();
 	}
 
@@ -489,9 +495,15 @@ void CNew3D::DisableRenderStates()
 void CNew3D::RenderFrame(void)
 {
 	SWITCH_GL_CHECK("3D: start");
+#ifdef __SWITCH__
+	uint64_t tStart = SwitchProfile::NowNs();
+#endif
 	// Collect async LOS results from the previous frame into m_losBack
 	// before the swap, so they become visible to the CPU via m_losFront
 	CollectLosResults();
+#ifdef __SWITCH__
+	s_3dStats.losNs += SwitchProfile::NowNs() - tStart;
+#endif
 
 	{
 		std::lock_guard<std::mutex> guard(m_losMutex);
@@ -537,7 +549,14 @@ void CNew3D::RenderFrame(void)
 	}
 
 	m_ramSlot = 1 - m_ramSlot;   // toggle slot BEFORE RenderViewport so vboOffset uses the same slot as the upload
+#ifdef __SWITCH__
+	uint64_t tBuild = SwitchProfile::NowNs();
+#endif
 	RenderViewport(0x800000);						// build model structure (vboOffset computed with current m_ramSlot)
+#ifdef __SWITCH__
+	uint64_t tUpload = SwitchProfile::NowNs();
+	s_3dStats.buildNs += tUpload - tBuild;
+#endif
 
 	m_vbo.Bind(true);
 	int ramBase   = (MAX_ROM_VERTS + m_ramSlot * MAX_RAM_VERTS) * (int)sizeof(FVertex);
@@ -566,6 +585,10 @@ void CNew3D::RenderFrame(void)
 	}
 
 	SWITCH_GL_CHECK("3D: vertex upload");
+#ifdef __SWITCH__
+	uint64_t tDraw = SwitchProfile::NowNs();
+	s_3dStats.uploadNs += tDraw - tUpload;
+#endif
 	m_r3dFrameBuffers.SetFBO(Layer::colour);		// colour will draw to all 3 buffers. For regular opaque pixels the transparent layers will be essentially masked
 	glClear(GL_COLOR_BUFFER_BIT);
 	SWITCH_GL_CHECK("3D: bind and clear frame buffer");
@@ -620,6 +643,10 @@ void CNew3D::RenderFrame(void)
 	}
 
 	SWITCH_GL_CHECK("3D: scene");
+#ifdef __SWITCH__
+	uint64_t tComposite = SwitchProfile::NowNs();
+	s_3dStats.drawNs += tComposite - tDraw;
+#endif
 	m_r3dFrameBuffers.SetFBO(Layer::none);
 
 	if (m_aaTarget) {
@@ -634,6 +661,7 @@ void CNew3D::RenderFrame(void)
 	}
 
 #ifdef __SWITCH__
+	s_3dStats.compositeNs += SwitchProfile::NowNs() - tComposite;
 	Switch3DEndFrame(m_nodes.size(), s_frameDraws);
 	s_frameDraws = 0;
 #endif

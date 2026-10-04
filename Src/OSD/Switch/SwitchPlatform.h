@@ -44,6 +44,13 @@ void SwitchAddGamepadMappings();
 // homebrew thread by itself, and new threads start on the creator's core.
 void SwitchPinCurrentThread(int core);
 
+// Call from SDL's audio thread (i.e. the audio callback). libnx starts every
+// pthread, SDL's audio thread included, at priority 0x3B on core 0, below the
+// main/render thread (0x2C) on that same core, so a long frame starves it and
+// the double-buffered audren voice runs dry (crackling). This moves it to
+// core 2 at a priority above every emulator thread.
+void SwitchSetupAudioThread();
+
 // Picks the core for an emulator thread by its CThread name.
 int SwitchCoreForThread(const char *name);
 

@@ -30,12 +30,19 @@ namespace SwitchProfile
   uint64_t ppcExecCalls = 0;
   uint64_t ppcCycles = 0;
   uint64_t frames = 0;
+  uint64_t renderTexNs = 0;
   uint64_t render2DNs = 0;
   uint64_t render3DNs = 0;
   uint64_t renderEndNs = 0;
   uint64_t renderAANs = 0;
   uint64_t swapNs = 0;
   uint64_t renderFrames = 0;
+  uint64_t audioCallbacks = 0;
+  uint64_t audioLateCallbacks = 0;
+  uint64_t audioMaxGapNs = 0;
+  uint64_t audioPeriodNs = 0;
+  uint64_t audioUnderRuns = 0;
+  uint64_t audioOverRuns = 0;
 
   namespace
   {
@@ -128,10 +135,18 @@ namespace SwitchProfile
     if (renderFrames)
     {
       const double rf = double(renderFrames);
-      InfoLog("Render per frame (ms): 2D layers %.2f, 3D scene %.2f, end of frame %.2f, copy to screen %.2f, swap %.2f",
-              render2DNs / 1e6 / rf, render3DNs / 1e6 / rf, renderEndNs / 1e6 / rf, renderAANs / 1e6 / rf, swapNs / 1e6 / rf);
+      InfoLog("Render per frame (ms): 3D texture uploads %.2f, 2D layers %.2f, 3D scene %.2f, end of frame %.2f, copy to screen %.2f, swap %.2f",
+              renderTexNs / 1e6 / rf, render2DNs / 1e6 / rf, render3DNs / 1e6 / rf, renderEndNs / 1e6 / rf, renderAANs / 1e6 / rf, swapNs / 1e6 / rf);
     }
-    render2DNs = render3DNs = renderEndNs = renderAANs = swapNs = renderFrames = 0;
+    renderTexNs = render2DNs = render3DNs = renderEndNs = renderAANs = swapNs = renderFrames = 0;
+
+    if (audioCallbacks)
+    {
+      InfoLog("Audio: %llu callbacks of %.1f ms, %llu late (max gap %.1f ms), buffer under-runs %llu, over-runs %llu",
+              (unsigned long long)audioCallbacks, audioPeriodNs / 1e6, (unsigned long long)audioLateCallbacks,
+              audioMaxGapNs / 1e6, (unsigned long long)audioUnderRuns, (unsigned long long)audioOverRuns);
+    }
+    audioCallbacks = audioLateCallbacks = audioMaxGapNs = audioUnderRuns = audioOverRuns = 0;
 
     // Reset
     tileGenNs = ppcExecNs = ppcExecCalls = ppcCycles = frames = 0;

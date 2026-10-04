@@ -61,6 +61,11 @@
 #include <cmath>
 #include <algorithm>
 
+#ifdef __SWITCH__
+#include "OSD/Switch/SwitchPlatform.h"
+#include "OSD/Switch/SwitchProfile.h"
+#endif
+
   // Model3 audio output is 44.1KHz 4-channel sound and frame rate is 60fps
 #define SAMPLE_RATE_M3     (44100)
 #define SUPERMODEL_FPS     (60.0f)
@@ -98,7 +103,14 @@ static bool enabled = true;         // True if sound output is enabled
 static constexpr unsigned latency = 20;       // Audio latency to use (ie size of audio buffer) as percentage of max buffer size
 static constexpr bool underRunLoop = true;    // True if should loop back to beginning of buffer on under-run, otherwise sound is just skipped
 
+#ifdef __SWITCH__
+// SDL's Switch driver has only two device buffers of this size, so the audio
+// thread must refill one within a single buffer's play time. 1024 (23 ms)
+// leaves room for a long frame on a busy system; 512 crackles.
+static constexpr unsigned playSamples = 1024;
+#else
 static constexpr unsigned playSamples = 512;  // Size (in samples) of callback play buffer
+#endif
 
 static UINT32 audioBufferSize = 0;  // Size (in bytes) of audio buffer
 static INT8* audioBuffer = NULL;    // Audio buffer
@@ -173,6 +185,29 @@ static INT16 ClampINT16(float x)
 
 static void PlayCallback(void* data, Uint8* stream, int len)
 {
+#ifdef __SWITCH__
+    static bool threadSetUp = false;
+    static uint64_t lastCallNs = 0;
+    if (!threadSetUp)
+    {
+        SwitchSetupAudioThread();
+        threadSetUp = true;
+    }
+    const uint64_t nowNs = SwitchProfile::NowNs();
+    const uint64_t periodNs = (uint64_t)len * 1000000000ull / ((uint64_t)bytes_per_sample_host * SAMPLE_RATE_M3);
+    if (lastCallNs)
+    {
+        const uint64_t gapNs = nowNs - lastCallNs;
+        if (gapNs > SwitchProfile::audioMaxGapNs)
+            SwitchProfile::audioMaxGapNs = gapNs;
+        if (gapNs > periodNs + periodNs / 2)
+            SwitchProfile::audioLateCallbacks++;
+    }
+    lastCallNs = nowNs;
+    SwitchProfile::audioPeriodNs = periodNs;
+    SwitchProfile::audioCallbacks++;
+#endif
+
     //printf("PlayCallback(%d) [writePos = %u, writeWrapped = %s, playPos = %u, audioBufferSize = %u]\n",
     //	len, writePos, (writeWrapped ? "true" : "false"), playPos, audioBufferSize);
 
@@ -185,6 +220,9 @@ static void PlayCallback(void* data, Uint8* stream, int len)
     if (playPos + len > adjWritePos)
     {
         underRuns++;
+#ifdef __SWITCH__
+        SwitchProfile::audioUnderRuns++;
+#endif
 
         //printf("Audio buffer under-run #%u in PlayCallback(%d) [writePos = %u, writeWrapped = %s, playPos = %u, audioBufferSize = %u]\n",
         //	underRuns, len, writePos, (writeWrapped ? "true" : "false"), playPos, audioBufferSize);
@@ -563,6 +601,9 @@ bool OutputAudio(unsigned numSamples, const float* leftFrontBuffer, const float*
     if (playEndPos > writePos)
     {
         underRuns++;
+#ifdef __SWITCH__
+        SwitchProfile::audioUnderRuns++;
+#endif
 
         //printf("Audio buffer under-run #%u in OutputAudio(%u) [writePos = %u, writeWrapped = %s, playPos = %u, audioBufferSize = %u, numBytes = %u]\n",
         //	underRuns, numSamples, writePos, (writeWrapped ? "true" : "false"), playPos, audioBufferSize, numBytes);
@@ -608,6 +649,9 @@ bool OutputAudio(unsigned numSamples, const float* leftFrontBuffer, const float*
     if (overRun)
     {
         overRuns++;
+#ifdef __SWITCH__
+        SwitchProfile::audioOverRuns++;
+#endif
 
         //printf("Audio buffer over-run #%u in OutputAudio(%u) [writePos = %u, writeWrapped = %s, playPos = %u, audioBufferSize = %u, numBytes = %u]\n",
         //	overRuns, numSamples, writePos, (writeWrapped ? "true" : "false"), playPos, audioBufferSize, numBytes);
@@ -639,7 +683,7 @@ bool OutputAudio(unsigned numSamples, const float* leftFrontBuffer, const float*
         dst1 = audioBuffer + writePos;
         dst2 = NULL;
         len1 = numBytes;
-        len2 = NULL;
+        len2 = 0;
     }
 
     // Copy chunk to write position in buffer

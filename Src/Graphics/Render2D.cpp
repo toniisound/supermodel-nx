@@ -372,9 +372,10 @@ void CRender2D::PreRenderFrame(void)
 	SWITCH_GL_CHECK("2D upload: start");
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, 512);	// skip the non viewable data
 
+	m_textureSet = (m_textureSet + 1) % kTextureSets;
 	for (int i = 0; i < 2; i++) {
 		if (!m_drawBuffers[i]) continue;		// we don't have a draw buffer yet
-		glBindTexture(GL_TEXTURE_2D, m_textureIDs[i]);
+		glBindTexture(GL_TEXTURE_2D, m_textureIDs[m_textureSet * 2 + i]);
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 496, 384, GL_RGBA, GL_UNSIGNED_BYTE, m_drawBuffers[i]->data);
 	}
 
@@ -388,7 +389,7 @@ void CRender2D::RenderFrameBottom(void)
 	if (s_debugSkip2D) return;
 #endif
 	Setup2D(true);
-	DrawSurface(m_textureIDs[0]);
+	DrawSurface(m_textureIDs[m_textureSet * 2 + 0]);
 	SWITCH_GL_CHECK("2D bottom layer");
 }
 
@@ -398,7 +399,7 @@ void CRender2D::RenderFrameTop(void)
 	if (s_debugSkip2D) return;
 #endif
 	Setup2D(false);
-	DrawSurface(m_textureIDs[1]);
+	DrawSurface(m_textureIDs[m_textureSet * 2 + 1]);
 	SWITCH_GL_CHECK("2D top layer");
 }
 
@@ -491,7 +492,7 @@ CRender2D::CRender2D(const Util::Config::Node& config)
 	glBindVertexArray(0);
 
 	// create textures
-	glGenTextures(2, m_textureIDs);
+	glGenTextures(kTextureSets * 2, m_textureIDs);
 }
 
 CRender2D::~CRender2D(void)

@@ -60,9 +60,11 @@ void New3D::TextureBank::UploadTextures(int level, int x, int y, int width, int 
 	int subX = x - mipXBase[level];
 	int subY = y - mipYBase[level];
 
-	for (int i = 0; i < height; i++) {
-		glTexSubImage2D(GL_TEXTURE_2D, level, subX, subY + i, width, 1, GL_RED_INTEGER, GL_UNSIGNED_SHORT, m_textureRam + ((y + i) * 2048) + x);
-	}
+	// One call for the whole rectangle: texture RAM rows are 2048 texels apart.
+	// (Row-by-row uploads cost thousands of driver calls for a full sheet.)
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 2048);
+	glTexSubImage2D(GL_TEXTURE_2D, level, subX, subY, width, height, GL_RED_INTEGER, GL_UNSIGNED_SHORT, m_textureRam + (y * 2048) + x);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 }
 
 int New3D::TextureBank::GetNumberOfLevels() const

@@ -206,7 +206,12 @@ private:
 	UpscaleMode m_upscaleMode = UpscaleMode::Biquintic;
 
 	GLuint m_vao;
-	GLuint m_textureIDs[2];
+	// Bottom/top layer textures, in kTextureSets sets used in turn: each frame
+	// uploads into a set the GPU is no longer reading, so glTexSubImage2D does
+	// not have to wait for the previous frame to finish drawing.
+	static constexpr int kTextureSets = 3;
+	GLuint m_textureIDs[kTextureSets * 2];
+	int m_textureSet = 0;
 	GLSLShader m_drawShader;
 	std::shared_ptr<TileGenBuffer> m_drawBuffers[2];
 };

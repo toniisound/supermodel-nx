@@ -350,6 +350,8 @@ static int OFF_FPSCR;
 static int OFF_SRR0;
 static int OFF_SRR1;
 static int OFF_DEC_TRIGGER;
+static int OFF_DEC_BASE;
+static int OFF_TIMER_RATIO;
 static int OFF_INT_PENDING;
 static int OFF_SR;
 static int OFF_DSISR;
@@ -380,6 +382,8 @@ static void compute_offsets()
     OFF_SRR0        = OFF(srr0);
     OFF_SRR1        = OFF(srr1);
     OFF_DEC_TRIGGER = OFF(dec_trigger_cycle);
+    OFF_DEC_BASE    = OFF(dec_base_icount);
+    OFF_TIMER_RATIO = OFF(timer_ratio);
     OFF_INT_PENDING = OFF(interrupt_pending);
     OFF_SR          = OFF(sr[0]);
     OFF_DSISR       = OFF(dsisr);
@@ -1991,7 +1995,22 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         case 9:   e.LDR_W(W0, PPC_PTR, OFF_CTR);           emit_store_gpr(e, W0, rD); return true;
         case 18:  e.LDR_W(W0, PPC_PTR, (uint32_t)OFF_DSISR); emit_store_gpr(e, W0, rD); return true;
         case 19:  e.LDR_W(W0, PPC_PTR, (uint32_t)OFF_DAR);   emit_store_gpr(e, W0, rD); return true;
-        case 22:  return false;  // mfspr DEC: fall back so read_decrementer() returns cycle-adjusted value
+        case 22: {
+            // read_decrementer(): DEC - (dec_base_icount - icount) / timer_ratio.
+            // Games poll DEC in tight wait loops (Scud Race: ~150k reads per
+            // frame), so this is inlined rather than sent to the interpreter.
+            // icount is only written at block exits, so this sees the same
+            // value the interpreter fallback did.
+            e.LDR_W(W0, PPC_PTR, (uint32_t)OFF_DEC_BASE);
+            e.LDR_W(W1, PPC_PTR, (uint32_t)OFF_ICOUNT);
+            e.SUB_W(W0, W0, W1);
+            e.LDR_W(W1, PPC_PTR, (uint32_t)OFF_TIMER_RATIO);
+            e.SDIV_W(W0, W0, W1);                // C int division: truncates toward zero
+            e.LDR_W(W1, PPC_PTR, (uint32_t)OFF_DEC);
+            e.SUB_W(W0, W1, W0);
+            emit_store_gpr(e, W0, rD);
+            return true;
+        }
         case 26:  e.LDR_W(W0, PPC_PTR, OFF_SRR0);          emit_store_gpr(e, W0, rD); return true;
         case 27:  e.LDR_W(W0, PPC_PTR, OFF_SRR1);          emit_store_gpr(e, W0, rD); return true;
         case 272: e.LDR_W(W0, PPC_PTR, OFF_SPRG + 0);      emit_store_gpr(e, W0, rD); return true;

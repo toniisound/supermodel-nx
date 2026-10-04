@@ -1162,19 +1162,30 @@ void SCSP_w32(unsigned int addr,unsigned int val)
 #ifdef USEDSP
 		//DSP
 		rotl(val, 16);
+			// Two 16-bit stores (as upstream): a 32-bit store through a cast
+			// pointer breaks strict aliasing and may be unaligned.
 			if(addr<0x780)	//COEF
-				*(unsigned int *) &(SCSP->DSP.COEF[(addr-0x700)/2])=val;
+			{
+				SCSP->DSP.COEF[(addr-0x700)/2]     = (INT16)(val & 0xFFFF);
+				SCSP->DSP.COEF[(addr-0x700)/2 + 1] = (INT16)(val >> 16);
+			}
 			else if (addr < 0x7c0)
-				*(unsigned int *) &(SCSP->DSP.MADRS[(addr-0x780)/2]) = val;
+			{
+				SCSP->DSP.MADRS[(addr-0x780)/2]     = (UINT16)(val & 0xFFFF);
+				SCSP->DSP.MADRS[(addr-0x780)/2 + 1] = (UINT16)(val >> 16);
+			}
 			else if (addr < 0x800) // MADRS is mirrored twice
-				*(unsigned int *) &(SCSP->DSP.MADRS[(addr-0x7c0)/2]) = val;
+			{
+				SCSP->DSP.MADRS[(addr-0x7c0)/2]     = (UINT16)(val & 0xFFFF);
+				SCSP->DSP.MADRS[(addr-0x7c0)/2 + 1] = (UINT16)(val >> 16);
+			}
 			else if(addr<0xC00)
-				*(unsigned int *) &(SCSP->DSP.MPRO[(addr-0x800)/2])=val;
-			else
-				int a=1;
+			{
+				SCSP->DSP.MPRO[(addr-0x800)/2]     = (UINT16)(val & 0xFFFF);
+				SCSP->DSP.MPRO[(addr-0x800)/2 + 1] = (UINT16)(val >> 16);
+			}
 			if(addr==0xBF0)
 				SCSPDSP_Start(&SCSP->DSP);
-			int a=1;
 #endif
 	}
 }

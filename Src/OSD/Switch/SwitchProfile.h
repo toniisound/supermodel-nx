@@ -44,12 +44,21 @@ namespace SwitchProfile
   extern uint64_t frames;
 
   // Render thread (CModel3::RenderFrame and the buffer swap)
+  extern uint64_t renderTexNs;    // queued 3D texture uploads (Real3D BeginFrame)
   extern uint64_t render2DNs;     // tile generator layers
   extern uint64_t render3DNs;     // 3D scene (New3D RenderFrame)
   extern uint64_t renderEndNs;    // GPU/TileGen EndFrame
   extern uint64_t renderAANs;     // final copy to the screen (SuperAA)
   extern uint64_t swapNs;         // SDL_GL_SwapWindow
   extern uint64_t renderFrames;
+
+  // SDL audio thread (Audio.cpp PlayCallback) and sound board thread (OutputAudio)
+  extern uint64_t audioCallbacks;
+  extern uint64_t audioLateCallbacks;   // gap since the previous one > 1.5x its period: the device ran dry
+  extern uint64_t audioMaxGapNs;
+  extern uint64_t audioPeriodNs;        // play time of one callback
+  extern uint64_t audioUnderRuns;       // emulator ring buffer under-runs (stale audio replayed)
+  extern uint64_t audioOverRuns;        // emulator ring buffer over-runs (a frame of audio dropped)
 
   // Interpreter fallbacks from JIT code (ppc_dispatch_opcode)
   void CountFallback(uint32_t opcode);

@@ -150,6 +150,15 @@ void SwitchPinCurrentThread(int core)
   svcSetThreadCoreMask(CUR_THREAD_HANDLE, core, 1u << core);
 }
 
+void SwitchSetupAudioThread()
+{
+  // Core 2 is shared only by the sound and drive boards. 0x2B: just above the
+  // main thread (0x2C); the audio thread spends nearly all its time blocked in
+  // audrenWaitFrame(), so it cannot starve anything.
+  SwitchPinCurrentThread(2);
+  svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2B);
+}
+
 int SwitchCoreForThread(const char *name)
 {
   // The main thread (core 0) runs the front end and OpenGL rendering.

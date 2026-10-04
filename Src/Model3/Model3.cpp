@@ -2247,9 +2247,11 @@ void CModel3::RenderFrame(void)
   {
 #ifdef __SWITCH__
     // Where the render thread's time goes (log: "Render per frame").
-    uint64_t t0 = SwitchProfile::NowNs();
+    uint64_t tTex = SwitchProfile::NowNs();
     TileGen.BeginFrame();
-    GPU.BeginFrame();
+    GPU.BeginFrame();               // performs the queued 3D texture uploads
+    uint64_t t0 = SwitchProfile::NowNs();
+    SwitchProfile::renderTexNs += t0 - tTex;
     TileGen.PreRenderFrame();
     TileGen.RenderFrameBottom();
     uint64_t t1 = SwitchProfile::NowNs();

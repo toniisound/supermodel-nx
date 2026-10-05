@@ -17,8 +17,10 @@
 
 ## Credits
 
-- **SuperModel NX**: Nintendo Switch fork by ToniiSound; 1.1 and 1.2 audio and
-  performance work by Thorhax.
+- **SuperModel NX**: Nintendo Switch fork by ToniiSound.
+- **Special thanks to [Thorhax](https://github.com/Thorhax)** for the improvements in
+  versions 1.1 and 1.2: crackle-free audio, smoother rendering, deferred line-of-sight
+  reads, `RenderScale` and faster decrementer reads in the recompiler.
 - **Supermodel**: © 2003-2025 The Supermodel Team (Bart Trzynadlowski, Nik Henson,
   Ian Curtis and contributors). <https://www.supermodel3.com>
 - **Libretro-Supermodel**: [libretro](https://github.com/libretro/Libretro-Supermodel) and

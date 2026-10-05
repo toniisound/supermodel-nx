@@ -1032,6 +1032,7 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
     const float coverWidth = std::floor(ImGui::GetContentRegionAvail().x * 0.30f);
     const float listWidth = ImGui::GetContentRegionAvail().x - coverWidth - ImGui::GetStyle().ItemSpacing.x;
     ImGui::BeginChild("TableRegion", ImVec2(listWidth, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);   // a bit smaller, so the columns fit
 #else
     // Fill the rest of the window with the list.
     ImGui::BeginChild("TableRegion", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
@@ -1096,6 +1097,9 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
         ImGui::EndTable();
     }
 
+#ifdef __SWITCH__
+    ImGui::PopFont();
+#endif
     ImGui::EndChild();
 
 #ifdef __SWITCH__

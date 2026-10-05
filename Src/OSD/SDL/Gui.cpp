@@ -902,9 +902,9 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
 
     if (ImGui::BeginTable("Games", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit))
     {
-        ImGui::TableSetupColumn("Title");
-        ImGui::TableSetupColumn("Rom Name");
-        ImGui::TableSetupColumn("Version");
+        ImGui::TableSetupColumn("TITLE");
+        ImGui::TableSetupColumn("ROM NAME");
+        ImGui::TableSetupColumn("VERSION");
         ImGui::TableSetupColumn("STEP");
 
         ImGui::TableHeadersRow();

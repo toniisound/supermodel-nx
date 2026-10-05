@@ -900,12 +900,11 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
     // Fill the rest of the window with the list.
     ImGui::BeginChild("TableRegion", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
 
-    if (ImGui::BeginTable("Games", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit))
+    if (ImGui::BeginTable("Games", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit))
     {
         ImGui::TableSetupColumn("Title");
         ImGui::TableSetupColumn("Rom Name");
         ImGui::TableSetupColumn("Version");
-        ImGui::TableSetupColumn("Year");
         ImGui::TableSetupColumn("Stepping");
 
         ImGui::TableHeadersRow();
@@ -948,8 +947,6 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
             ImGui::TableSetColumnIndex(2);
             ImGui::Text("%s", g.second.version.c_str());
             ImGui::TableSetColumnIndex(3);
-            ImGui::Text("%d", g.second.year);
-            ImGui::TableSetColumnIndex(4);
             ImGui::Text("%s", g.second.stepping.c_str());
 
             row++;
@@ -1053,7 +1050,16 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
         ImGui::Spacing();
 
         // draw the tabbed options
+#ifdef __SWITCH__
+        // The five tabs (General, Core, Video, Audio, Credits) share the full width.
+        const int tabCount = 5;
+        const float tabWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemInnerSpacing.x * (tabCount - 1)) / tabCount;
+        auto FullWidthTab = [tabWidth]() { ImGui::SetNextItemWidth(tabWidth); };
+#else
+        auto FullWidthTab = []() {};
+#endif
         if (ImGui::BeginTabBar("MyTabBar", ImGuiTabBarFlags_FittingPolicyResizeDown)) {
+            FullWidthTab();
             if (ImGui::BeginTabItem("General")) {
                 UpdateTempValues(config, "General", true);
                 CreateControls(config, "General");      // ShowFPSOnScreen
@@ -1085,6 +1091,7 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
                 ImGui::EndTabItem();
                 inputs = nullptr;
             }
+            FullWidthTab();
             if (ImGui::BeginTabItem("Core")) {
 #ifdef __SWITCH__
                 DrawPowerPCFrequency(config);       // before UpdateTempValues(), like the resolution
@@ -1095,6 +1102,7 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
                 ImGui::EndTabItem();
                 inputs = nullptr;
             }
+            FullWidthTab();
             if (ImGui::BeginTabItem("Video")) {
                 // Before UpdateTempValues(): a preset change must not be
                 // overwritten by the tab's values from before the change.
@@ -1105,6 +1113,7 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
                 ImGui::EndTabItem();
                 inputs = nullptr;
             }
+            FullWidthTab();
             if (ImGui::BeginTabItem("Audio")) {
                 UpdateTempValues(config, "Sound", true);
                 CreateControls(config, "Sound");
@@ -1113,6 +1122,7 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
                 inputs = nullptr;
             }
 #ifdef __SWITCH__
+            FullWidthTab();
             if (ImGui::BeginTabItem("Credits")) {
                 DrawCredits();
                 ImGui::EndTabItem();

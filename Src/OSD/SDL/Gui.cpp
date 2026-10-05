@@ -1044,7 +1044,17 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
         ImGui::TableSetupColumn("ROM NAME");
         ImGui::TableSetupColumn("VERSION");
 
+#ifdef __SWITCH__
+        // Plain header row: labels only, so the controller cursor can't land on them.
+        ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+        for (int column = 0; column < ImGui::TableGetColumnCount(); column++) {
+            ImGui::TableSetColumnIndex(column);
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(ImGuiCol_TableHeaderBg));
+            ImGui::TextUnformatted(ImGui::TableGetColumnName(column));
+        }
+#else
         ImGui::TableHeadersRow();
+#endif
 
         int row = 0;
         for (const auto& g : games) {

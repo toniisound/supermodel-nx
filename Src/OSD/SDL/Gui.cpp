@@ -905,7 +905,7 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
         ImGui::TableSetupColumn("Title");
         ImGui::TableSetupColumn("Rom Name");
         ImGui::TableSetupColumn("Version");
-        ImGui::TableSetupColumn("Stepping");
+        ImGui::TableSetupColumn("STEP");
 
         ImGui::TableHeadersRow();
 

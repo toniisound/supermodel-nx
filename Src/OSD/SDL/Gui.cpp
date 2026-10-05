@@ -23,6 +23,15 @@
 #include "Main.h"
 #ifdef __SWITCH__
 #include "../Switch/SwitchPlatform.h"
+#include <deque>
+
+// Game covers: PNG and JPEG decoding (stb_image, public domain / MIT)
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_STATIC
+#define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
+#define STBI_NO_STDIO_WARNINGS
+#include "../../Pkgs/stb_image.h"
 
 static SDL_Window *s_guiWindow = nullptr;    // see TakeGuiWindow() in Gui.h
 static SDL_GLContext s_guiContext = nullptr;
@@ -797,6 +806,126 @@ static void FreeLogo()
     s_logoTried = false;
 }
 
+// Game covers, provided by the player: Covers/<ROM set>.png (or .jpg/.jpeg)
+// on the SD card, e.g. Covers/daytona2.png. A clone without its own cover
+// uses its parent's. None are included with the program.
+struct Cover {
+    GLuint texture = 0;     // 0: no cover for this set
+    int width = 0, height = 0;
+};
+static std::map<std::string, Cover> s_covers;     // tried sets (with or without a cover)
+static std::deque<std::string> s_coverOrder;      // loaded textures, oldest first
+static const size_t kMaxCoverTextures = 12;
+static std::string s_coverGame, s_coverParent;    // game under the list cursor
+
+static Cover LoadCover(const std::string& set)
+{
+    Cover cover;
+    for (const char* ext : { ".png", ".jpg", ".jpeg", ".PNG", ".JPG" }) {
+        const std::string path = std::string(SWITCH_SUPERMODEL_ROOT "/Covers/") + set + ext;
+        int w, h, n;
+        unsigned char* pixels = stbi_load(path.c_str(), &w, &h, &n, 4);
+        if (!pixels)
+            continue;
+
+        // Halve big pictures (box filter) so a cover stays a few MB at most.
+        while (w > 1024 || h > 1024) {
+            const int nw = w / 2, nh = h / 2;
+            for (int y = 0; y < nh; y++) {
+                for (int x = 0; x < nw; x++) {
+                    const unsigned char* a = pixels + ((2 * y) * w + 2 * x) * 4;
+                    const unsigned char* b = a + w * 4;
+                    unsigned char* d = pixels + (y * nw + x) * 4;
+                    for (int c = 0; c < 4; c++)
+                        d[c] = (unsigned char)((a[c] + a[c + 4] + b[c] + b[c + 4] + 2) / 4);
+                }
+            }
+            w = nw; h = nh;
+        }
+
+        glGenTextures(1, &cover.texture);
+        glBindTexture(GL_TEXTURE_2D, cover.texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        stbi_image_free(pixels);
+        cover.width = w;
+        cover.height = h;
+        break;
+    }
+    return cover;
+}
+
+static const Cover& GetCover(const std::string& set)
+{
+    auto it = s_covers.find(set);
+    if (it != s_covers.end())
+        return it->second;
+
+    // Keep a few textures loaded, so going back up the list is instant.
+    Cover cover = LoadCover(set);
+    if (cover.texture) {
+        s_coverOrder.push_back(set);
+        if (s_coverOrder.size() > kMaxCoverTextures) {
+            auto old = s_covers.find(s_coverOrder.front());
+            if (old != s_covers.end()) {
+                glDeleteTextures(1, &old->second.texture);
+                s_covers.erase(old);    // tried again if it comes back
+            }
+            s_coverOrder.pop_front();
+        }
+    }
+    return s_covers[set] = cover;
+}
+
+static void FreeCovers()
+{
+    for (auto& c : s_covers) {
+        if (c.second.texture)
+            glDeleteTextures(1, &c.second.texture);
+    }
+    s_covers.clear();
+    s_coverOrder.clear();
+}
+
+static void DrawCoverPanel(const ImVec2& size)
+{
+    ImGui::BeginChild("Cover", size, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNav);
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+
+    const Cover* cover = nullptr;
+    if (!s_coverGame.empty()) {
+        cover = &GetCover(s_coverGame);
+        if (!cover->texture && !s_coverParent.empty())
+            cover = &GetCover(s_coverParent);
+    }
+
+    if (cover && cover->texture) {
+        // Fit the cover in the panel, keeping its proportions, centred
+        float w = avail.x;
+        float h = w * float(cover->height) / float(cover->width);
+        if (h > avail.y) { h = avail.y; w = h * float(cover->width) / float(cover->height); }
+        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + (avail.x - w) * 0.5f, ImGui::GetCursorPosY() + (avail.y - h) * 0.5f));
+        ImGui::Image((ImTextureID)(intptr_t)cover->texture, ImVec2(w, h));
+    }
+    else if (!s_coverGame.empty()) {
+        const char* text = "No cover";
+        const std::string hint = "Covers/" + s_coverGame + ".png";
+        const float lineH = ImGui::GetTextLineHeightWithSpacing();
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (avail.y - lineH * 2.0f) * 0.5f);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail.x - ImGui::CalcTextSize(text).x) * 0.5f);
+        ImGui::TextDisabled("%s", text);
+        ImGui::SetCursorPosX(ImGui::GetStyle().WindowPadding.x + std::max(0.0f, (avail.x - ImGui::CalcTextSize(hint.c_str()).x) * 0.5f));
+        ImGui::TextDisabled("%s", hint.c_str());
+    }
+    ImGui::EndChild();
+}
+
 static void DrawHeader(bool& toggleSettings)
 {
     if (!s_logoTried)
@@ -864,6 +993,7 @@ static void DrawCredits()
     ImGui::BulletText("Dear ImGui by Omar Cornut");
     ImGui::BulletText("Musashi 68000 core by Karl Stenerud");
     ImGui::BulletText("zlib and minizip");
+    ImGui::BulletText("stb_image by Sean Barrett (game covers)");
     ImGui::BulletText("Logo set in Bungee Inline by David Jonathan Ross (SIL Open Font License)");
 
     ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
@@ -897,8 +1027,15 @@ static Game GetGame(const std::map<std::string, Game>& games, int selectedGameIn
 
 static void DrawGameList(const std::map<std::string, Game>& games, const std::set<std::string>& installed, int& selectedGameIndex, bool& exit, bool focus)
 {
+#ifdef __SWITCH__
+    // List on the left, cover of the game under the cursor on the right.
+    const float coverWidth = std::floor(ImGui::GetContentRegionAvail().x * 0.30f);
+    const float listWidth = ImGui::GetContentRegionAvail().x - coverWidth - ImGui::GetStyle().ItemSpacing.x;
+    ImGui::BeginChild("TableRegion", ImVec2(listWidth, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
+#else
     // Fill the rest of the window with the list.
     ImGui::BeginChild("TableRegion", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
+#endif
 
     if (ImGui::BeginTable("Games", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit))
     {
@@ -939,6 +1076,13 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
 #endif
                 selectedGameIndex = row;
             }
+#ifdef __SWITCH__
+            if (ImGui::IsItemFocused() || ImGui::IsItemHovered() ||
+                (s_coverGame.empty() && row == std::max(selectedGameIndex, 0))) {
+                s_coverGame = g.second.name;
+                s_coverParent = g.second.parent;
+            }
+#endif
 
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
                 exit = true;
@@ -956,6 +1100,11 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
     }
 
     ImGui::EndChild();
+
+#ifdef __SWITCH__
+    ImGui::SameLine();
+    DrawCoverPanel(ImVec2(coverWidth, 0.0f));
+#endif
 }
 
 static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<std::string, Game>& games, const std::set<std::string>& installed, bool& onlyInstalled, int& selectedGameIndex, bool& exit, bool& saveSettings, SDL_Window* window, std::shared_ptr<CInputs>& inputs, KeyBindState& kb)
@@ -1413,6 +1562,7 @@ exitNoSave:
     // Cleanup resources
 #ifdef __SWITCH__
     FreeLogo();
+    FreeCovers();
 #endif
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();

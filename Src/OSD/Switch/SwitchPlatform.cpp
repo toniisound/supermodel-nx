@@ -79,7 +79,7 @@ void SwitchPlatformInit()
   const std::string root = SWITCH_SUPERMODEL_ROOT;
   MakeDir("sdmc:/switch");
   MakeDir(root);
-  for (const char *sub : { "Config", "ROMs", "NVRAM", "Saves", "Log", "Screenshots", "Assets" })
+  for (const char *sub : { "Config", "ROMs", "NVRAM", "Saves", "Log", "Screenshots", "Assets", "Covers" })
     MakeDir(root + "/" + sub);
 
   // The front end uses relative paths (ROMs/<game>.zip in the GUI, the

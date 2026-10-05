@@ -9,6 +9,7 @@
 - Its own menu: list of the games on the SD card, logo, settings on the **+** button.
 - Press − and + together during a game to go back to the game list.
 - Resolution selector (1280x720, 960x540, 854x480) and on-screen FPS counter.
+- Game covers next to the list (your own pictures, see [Covers](#covers)).
 
 > No ROMs or NVRAM data are included: provide your own, and only use copies of games
 > you own (see [Installing](#installing)).
@@ -27,7 +28,7 @@
   [sgiannop](https://github.com/sgiannop/Libretro-Supermodel), the base of this fork and of
   the ARM64 recompiler.
 - devkitPro and libnx, SDL2, Mesa, glad, Dear ImGui (Omar Cornut), Musashi (Karl Stenerud),
-  zlib and minizip.
+  zlib and minizip, stb_image (Sean Barrett).
 - Logo set in [Bungee Inline](https://fonts.google.com/specimen/Bungee+Inline) by David Jonathan Ross
   (SIL Open Font License).
 
@@ -68,6 +69,7 @@ The output is `build/switch/supermodel.nro`.
 sdmc:/switch/supermodel/
 ├── supermodel.nro
 ├── ROMs/            ← your MAME-style ROM zips: scud.zip, vf3.zip, daytona2.zip…
+├── Covers/          ← your game covers (optional): daytona2.png, scud.jpg…
 └── NVRAM/           ← your NVRAM files (optional): daytona2.nv…
 ```
 
@@ -89,6 +91,17 @@ etc.) in NVRAM. SuperModel NX does not include any NVRAM data: provide your own.
   exit with − and +. The NVRAM is saved to `NVRAM/` and loaded every time after that.
 
 To start a game's setup again from scratch, delete its `.nv` file from `NVRAM/`.
+
+### Covers
+
+The menu shows the cover of the game under the cursor, to the right of the list. No covers
+are included: put your own pictures in `sdmc:/switch/supermodel/Covers/`, named after the
+ROM set like the zip (e.g. `daytona2.png`, `scud.jpg`).
+
+- PNG or JPEG, any size (pictures larger than 1024 px are scaled down when loaded; around
+  512x720 is plenty).
+- A clone without its own cover uses its parent's (e.g. `scudplus` uses `scud.png`).
+- A game without a cover shows "No cover" and the file name it looks for.
 
 Launch the `.nro` **in title mode** (hold R while opening a game from the HOME menu) to
 get all the memory. The recompiler needs Atmosphère.

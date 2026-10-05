@@ -15,39 +15,6 @@
 > Not affiliated with or endorsed by Sega or Nintendo. Sega, Model 3 and the game
 > titles are trademarks of their respective owners.
 
-## What's new in 1.2.1
-
-- The deferred line-of-sight values are read with one call per frame instead of one per
-  check (each read is a GPU round trip on the Switch): Scud Race 1.1-1.4 → 0.9-1.0 ms per
-  frame. Races: 60 FPS throughout at a 768 MHz GPU.
-
-## What's new in 1.2.0
-
-- **No more mid-frame stalls in 3D games that use line of sight** (`New3DAsyncLOS`, on by
-  default). Reading the line-of-sight depth during the frame made the CPU wait for the GPU
-  each time: 7-11 ms per frame in Scud Race races. The reads are now copied on the GPU and
-  read at the start of the next frame. Scud Race holds 60 FPS in races with the GPU at its
-  standard 768 MHz (before: 49-56 FPS, or a 998 MHz overclock).
-- **Sharper `RenderScale` upscale**: `RenderScaleFilter = 1` (default) uses Catmull-Rom
-  instead of a bilinear stretch.
-- **3D options** for other GPUs and testing: `New3DEarlyDepth` (hardware depth, so hidden
-  pixels can be skipped before shading) and `New3DBatchedDraws`, both off by default.
-- **Log**: GPU time per stage of the frame, and where the 3D draw passes spend their time.
-
-## What's new in 1.1.0
-
-- **Audio**: sound effects and speech no longer crackle. SDL's audio thread now runs on
-  core 2 above the emulator threads (libnx started it at the lowest priority on the render
-  core), with larger device buffers.
-- **No more render stutter**: 3D textures upload in one call per rectangle instead of one per
-  row, and the 2D layers rotate between three textures. Scud Race no longer drops to
-  20-30 FPS during loading and attract mode.
-- **PowerPC JIT**: decrementer reads (`mfspr DEC`) are compiled instead of interpreted.
-- **3D**: per-mesh state comes from one buffer per pass instead of shader uniforms
-  (`New3DBatchedDraws`); new `RenderScale` option.
-- **Diagnostics**: the log reports audio timing, a breakdown of 3D render time, and keeps the
-  logs of the three previous runs (`Supermodel.1.log` to `.3.log`).
-
 ## Credits
 
 - **SuperModel NX**: Nintendo Switch fork by ToniiSound; 1.1 and 1.2 audio and

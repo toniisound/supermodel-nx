@@ -1037,12 +1037,11 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
     ImGui::BeginChild("TableRegion", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
 #endif
 
-    if (ImGui::BeginTable("Games", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit))
+    if (ImGui::BeginTable("Games", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit))
     {
         ImGui::TableSetupColumn("TITLE");
         ImGui::TableSetupColumn("ROM NAME");
         ImGui::TableSetupColumn("VERSION");
-        ImGui::TableSetupColumn("STEP");
 
         ImGui::TableHeadersRow();
 
@@ -1090,8 +1089,6 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
 
             ImGui::TableSetColumnIndex(2);
             ImGui::Text("%s", g.second.version.c_str());
-            ImGui::TableSetColumnIndex(3);
-            ImGui::Text("%s", g.second.stepping.c_str());
 
             row++;
         }

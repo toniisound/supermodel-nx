@@ -73,10 +73,15 @@ sdmc:/switch/supermodel/
 └── NVRAM/           ← your NVRAM files (optional): daytona2.nv…
 ```
 
-On first launch `Config/`, `NVRAM/`, `Saves/`, `Log/`, `Screenshots/` and `Assets/` are
-created, and `Supermodel.ini`, `Games.xml` and `Music.xml` are copied. They are never
-overwritten: edit `Config/Supermodel.ini` to change settings and controls, or use
+On first launch `Config/`, `NVRAM/`, `Covers/`, `Saves/`, `Log/`, `Screenshots/` and
+`Assets/` are created, and `Supermodel.ini`, `Games.xml` and `Music.xml` are copied. They
+are never overwritten: edit `Config/Supermodel.ini` to change settings and controls, or use
 **Load Defaults** in the General tab of the settings to restore them.
+
+Launch the `.nro` **in title mode** (hold R while opening a game from the HOME menu) to
+get all the memory. The recompiler needs Atmosphère.
+
+Keep the folder name `supermodel`: the program reads and writes its files there.
 
 ### NVRAM (cabinet settings)
 
@@ -102,11 +107,6 @@ ROM set like the zip (e.g. `daytona2.png`, `scud.jpg`).
   512x720 is plenty).
 - A clone without its own cover uses its parent's (e.g. `scudplus` uses `scud.png`).
 - A game without a cover shows "No cover" and the file name it looks for.
-
-Launch the `.nro` **in title mode** (hold R while opening a game from the HOME menu) to
-get all the memory. The recompiler needs Atmosphère.
-
-Keep the folder name `supermodel`: the program reads and writes its files there.
 
 ## Menu
 

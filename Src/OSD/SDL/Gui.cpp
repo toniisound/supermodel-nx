@@ -969,7 +969,7 @@ static void DrawCredits()
     ImGui::BeginChild("CreditsText", ImVec2(0.0f, 0.0f), false);
 
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.5f);
-    ImGui::TextUnformatted("SuperModel NX 1.3.0");
+    ImGui::TextUnformatted("SuperModel NX 1.3.1");
     ImGui::PopFont();
     ImGui::TextUnformatted("Nintendo Switch fork by ToniiSound and Thorhax");
 

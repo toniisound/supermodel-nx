@@ -1038,11 +1038,23 @@ static void DrawGameList(const std::map<std::string, Game>& games, const std::se
     ImGui::BeginChild("TableRegion", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
 #endif
 
-    if (ImGui::BeginTable("Games", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit))
+#ifdef __SWITCH__
+    // The table scrolls by itself, with its header row frozen at the top, so
+    // the column names stay visible while moving down the list.
+    const ImGuiTableFlags tableFlags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_ScrollY;
+    const ImVec2 tableSize(0.0f, ImGui::GetContentRegionAvail().y);
+#else
+    const ImGuiTableFlags tableFlags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit;
+    const ImVec2 tableSize(0.0f, 0.0f);
+#endif
+    if (ImGui::BeginTable("Games", 3, tableFlags, tableSize))
     {
         ImGui::TableSetupColumn("TITLE");
         ImGui::TableSetupColumn("ROM NAME");
         ImGui::TableSetupColumn("VERSION");
+#ifdef __SWITCH__
+        ImGui::TableSetupScrollFreeze(0, 1);    // keep the header row on screen
+#endif
 
 #ifdef __SWITCH__
         // Plain header row: labels only, so the controller cursor can't land on them.

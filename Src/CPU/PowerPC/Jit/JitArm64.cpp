@@ -351,6 +351,7 @@ static int OFF_SRR0;
 static int OFF_SRR1;
 static int OFF_DEC_TRIGGER;
 static int OFF_DEC_BASE;
+bool g_jit_inline_dec = true;   // mfspr DEC compiled inline (config "JitInlineDEC")
 static int OFF_TIMER_RATIO;
 static int OFF_INT_PENDING;
 static int OFF_SR;
@@ -1996,6 +1997,8 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         case 18:  e.LDR_W(W0, PPC_PTR, (uint32_t)OFF_DSISR); emit_store_gpr(e, W0, rD); return true;
         case 19:  e.LDR_W(W0, PPC_PTR, (uint32_t)OFF_DAR);   emit_store_gpr(e, W0, rD); return true;
         case 22: {
+            if (!g_jit_inline_dec)
+                return false;   // interpreter fallback (config "JitInlineDEC = 0")
             // read_decrementer(): DEC - (dec_base_icount - icount) / timer_ratio.
             // Games poll DEC in tight wait loops (Scud Race: ~150k reads per
             // frame), so this is inlined rather than sent to the interpreter.

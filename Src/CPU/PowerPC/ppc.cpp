@@ -851,7 +851,18 @@ void ppc_set_jit_enabled(bool enabled)
 
 #ifdef HAVE_PPC_JIT
 extern bool g_jit_native_fp;   // JitArm64.cpp
+extern bool g_jit_inline_dec;  // JitArm64.cpp
 #endif
+
+void ppc_set_jit_inline_dec(bool enabled)
+{
+#ifdef HAVE_PPC_JIT
+	// Read while blocks are compiled: call before emulation starts.
+	g_jit_inline_dec = enabled;
+#else
+	(void)enabled;
+#endif
+}
 
 void ppc_set_jit_native_fp(bool enabled)
 {

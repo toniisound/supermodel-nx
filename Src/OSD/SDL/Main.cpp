@@ -2836,6 +2836,8 @@ int main(int argc, char **argv)
   InfoLog("PowerPC recompiler: %s", s_runtime_config["PowerPCJit"].ValueAsDefault<bool>(true) ? "on" : "off (interpreter)");
   ppc_set_jit_native_fp(s_runtime_config["JitNativeFP"].ValueAsDefault<bool>(true));
   InfoLog("Recompiler floating point: %s", s_runtime_config["JitNativeFP"].ValueAsDefault<bool>(true) ? "native" : "interpreter");
+  ppc_set_jit_inline_dec(s_runtime_config["JitInlineDEC"].ValueAsDefault<bool>(true));
+  InfoLog("Recompiler decrementer reads: %s", s_runtime_config["JitInlineDEC"].ValueAsDefault<bool>(true) ? "inline" : "interpreter");
 #ifdef __SWITCH__
   InfoLog("Swap interval: %d (VSync = %d)", SDL_GL_GetSwapInterval(), s_runtime_config["VSync"].ValueAsDefault<bool>(false) ? 1 : 0);
 #endif

@@ -97,6 +97,12 @@ etc.) in NVRAM. SuperModel NX does not include any NVRAM data: provide your own.
 
 To start a game's setup again from scratch, delete its `.nv` file from `NVRAM/`.
 
+**The Lost World**: the game stops on a black screen when the gun calibration in its NVRAM
+is missing. When `lostwsga.nv` exists, SuperModel NX sets the gun calibration in it before
+loading it (only those values change; the original is kept as `lostwsga.nv.bak`). Without
+an NVRAM file, start the game once and exit with − and + so it saves one, then start it
+again.
+
 ### Covers
 
 The menu shows the cover of the game under the cursor, to the right of the list. No covers

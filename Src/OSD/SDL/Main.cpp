@@ -99,6 +99,7 @@
 
 #include <iostream>
 #include "Util/BMPFile.h"
+#include "OSD/libretro/LibretroNvramSettings.h"   // gun calibration fix-up (The Lost World)
 
 #include "Crosshair.h"
 #include "OSD/DefaultConfigFile.h"
@@ -881,6 +882,88 @@ static void SaveNVRAM(IEmulator *Model3)
   InfoLog("Saved NVRAM to '%s'.", file_path.c_str());
 }
 
+// The Lost World hangs on a black screen after its boot text when the gun
+// calibration in its EEPROM is missing or out of range. Like the libretro
+// core, put the full-range calibration (centre 80, endpoints F4/0B, both
+// players) into an existing NVRAM file before it is loaded. Only those six
+// EEPROM words (and the EEPROM checksum) change; nothing is created when
+// there is no file, and the original is kept once as <game>.nv.bak.
+static void FixGunCalibration(const Game &game)
+{
+  LibretroNvramSettings::Selection selection;
+  selection.normalizeAnalogInputs = true;
+  if (LibretroNvramSettings::Detail::GetFamily(&game) != LibretroNvramSettings::Detail::Family::LostWorld)
+    return;
+
+  const std::string path = Util::Format() << FileSystemPath::GetPath(FileSystemPath::NVRAM) << game.name << ".nv";
+  std::vector<uint8_t> file;
+  {
+    FILE *fp = fopen(path.c_str(), "rb");
+    if (!fp)
+      return;
+    uint8_t buf[65536];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0)
+      file.insert(file.end(), buf, buf + n);
+    fclose(fp);
+  }
+
+  // Block file: per block, length, name length and comment length (32-bit
+  // little endian), then the name, the comment and the data.
+  auto findBlock = [&file](const char *name, size_t minSize) -> uint8_t * {
+    size_t pos = 0;
+    while (pos + 12 <= file.size())
+    {
+      uint32_t blockLen, nameLen, commentLen;
+      memcpy(&blockLen, &file[pos], 4);
+      memcpy(&nameLen, &file[pos + 4], 4);
+      memcpy(&commentLen, &file[pos + 8], 4);
+      if (blockLen < 12 || pos + blockLen > file.size() || 12 + (size_t)nameLen + commentLen > blockLen)
+        return nullptr;
+      std::string blockName((const char *)&file[pos + 12], nameLen);
+      blockName = blockName.c_str();    // the stored name may end with a NUL
+      const size_t data = pos + 12 + nameLen + commentLen;
+      if (blockName == name)
+        return data + minSize <= pos + blockLen ? &file[data] : nullptr;
+      pos += blockLen;
+    }
+    return nullptr;
+  };
+
+  uint8_t *eeprom = findBlock("93C46", 64 * sizeof(uint16_t));
+  uint8_t *backup = findBlock("Backup RAM", 0x20000);
+  if (!eeprom || !backup)
+    return;
+
+  uint16_t words[64];
+  memcpy(words, eeprom, sizeof(words));
+  const auto result = LibretroNvramSettings::Apply(game, words, backup, 0x20000, selection);
+  if (result != LibretroNvramSettings::ApplyResult::Changed)
+  {
+    if (result == LibretroNvramSettings::ApplyResult::InvalidLayout)
+      InfoLog("Gun calibration: '%s' has an unexpected layout, left as it is.", path.c_str());
+    return;
+  }
+  memcpy(eeprom, words, sizeof(words));
+
+  const std::string backupPath = path + ".bak";
+  if (FILE *old = fopen(backupPath.c_str(), "rb"))
+    fclose(old);
+  else
+    rename(path.c_str(), backupPath.c_str());
+
+  FILE *fp = fopen(path.c_str(), "wb");
+  if (!fp || fwrite(file.data(), 1, file.size(), fp) != file.size())
+  {
+    if (fp)
+      fclose(fp);
+    ErrorLog("Gun calibration: unable to write '%s'.", path.c_str());
+    return;
+  }
+  fclose(fp);
+  InfoLog("Gun calibration set in '%s' (original kept as '%s').", path.c_str(), backupPath.c_str());
+}
+
 // Returns true if a saved NVRAM file was loaded.
 static bool LoadNVRAM(IEmulator *Model3)
 {
@@ -1155,6 +1238,7 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
   MpegDec::LoadCustomTracks(s_musicXMLFilePath, game);
 
   // Load NVRAM (NVRAM/<game>.nv, provided by the user or saved on exit)
+  FixGunCalibration(game);
   LoadNVRAM(Model3);
 
   // Set the video mode

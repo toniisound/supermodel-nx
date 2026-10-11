@@ -3614,6 +3614,23 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
         if (!handled) {
             // Fallback: call interpreter for this instruction
             emit_fallback(e, op, pc);
+
+            // mtmsr, mtspr and tw can take an exception inside the interpreter:
+            // mtmsr enabling EE with an interrupt pending, a DEC write that
+            // crosses zero, a trap. ppc603_exception() then sets SRR0/SRR1, MSR
+            // and ppc.npc = handler, so the rest of this block must not run
+            // (it would execute past the exception point with the handler's
+            // MSR and its epilogue would overwrite npc, losing the interrupt:
+            // The Lost World soft-locks on a black screen). End the block and
+            // continue at ppc.npc: pc + 4 normally, the handler otherwise.
+            if (primary == 31) {
+                const int xo = (op >> 1) & 0x3FF;
+                if (xo == 146 || xo == 467 || xo == 4) {     // mtmsr, mtspr, tw
+                    e.LDR_W(W3, PPC_PTR, OFF_NPC);
+                    emit_epilogue_npc_reg(e, inst_count + 1, pc, W3);
+                    terminated = true;
+                }
+            }
         }
 
         inst_count++;

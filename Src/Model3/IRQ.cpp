@@ -35,6 +35,9 @@
 
 #include "Supermodel.h"
 #include "CPU/PowerPC/ppc.h"
+#ifdef __SWITCH__
+#include "OSD/Switch/SwitchProfile.h"
+#endif
 
 
 /******************************************************************************
@@ -68,6 +71,9 @@ void CIRQ::LoadState(CBlockFile *SaveState)
 void CIRQ::Assert(unsigned irqBits)
 {
 	irqState |= irqBits;
+#ifdef __SWITCH__
+	SwitchProfile::CountIrq(irqBits, irqEnable);
+#endif
 	if ((irqState&irqEnable))	// low 8 bits are maskable interrupts
 		ppc_set_irq_line(1);
 	if ((irqState&(~0xFF)))		// any non-maskable interrupts pending?

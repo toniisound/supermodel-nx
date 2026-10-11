@@ -73,6 +73,18 @@ namespace SwitchProfile
     uint32_t s_pcCount[kPcSlots];
     uint64_t s_entries = 0;
 
+    // I/O reads: direct-mapped table like the block entries
+    constexpr unsigned kIoSlots = 1024;
+    uint32_t s_ioKey[kIoSlots];
+    uint32_t s_ioCount[kIoSlots];
+    uint8_t s_ioSize[kIoSlots];
+    uint64_t s_ioLast[kIoSlots];
+    uint64_t s_ioReads = 0;
+
+    // Interrupts by bit (8 maskable + a few non-maskable)
+    uint32_t s_irqCount[16];
+    unsigned s_irqEnable = 0;
+
     int GroupIndex(uint32_t primary)
     {
       switch (primary) { case 19: return 0; case 31: return 1; case 59: return 2; case 63: return 3; }
@@ -105,6 +117,27 @@ namespace SwitchProfile
       s_pcCount[slot] = 0;
     }
     s_pcCount[slot]++;
+  }
+
+  void CountIoRead(uint32_t addr, unsigned size, uint64_t value)
+  {
+    s_ioReads++;
+    unsigned slot = ((addr >> 2) ^ (addr >> 12)) & (kIoSlots - 1);
+    if (s_ioKey[slot] != addr) {
+      if (s_ioCount[slot] > 64) { s_ioCount[slot]--; return; }
+      s_ioKey[slot] = addr;
+      s_ioCount[slot] = 0;
+    }
+    s_ioCount[slot]++;
+    s_ioSize[slot] = (uint8_t)size;
+    s_ioLast[slot] = value;
+  }
+
+  void CountIrq(unsigned bits, unsigned enable)
+  {
+    for (unsigned i = 0; i < 16; i++)
+      if (bits & (1u << i)) s_irqCount[i]++;
+    s_irqEnable = enable;
   }
 
   // Reads the results of pending sets the GPU has finished; never waits.
@@ -200,6 +233,26 @@ namespace SwitchProfile
       len += snprintf(line + len, sizeof(line) - len, " %08X x%.0f", pcs[i].pc, pcs[i].count / f);
     InfoLog("%s", line);
 
+    // Most polled I/O registers, with the last value read
+    struct Io { uint32_t count; uint32_t addr; unsigned size; uint64_t last; };
+    std::vector<Io> ios;
+    for (unsigned i = 0; i < kIoSlots; i++)
+      if (s_ioCount[i]) ios.push_back({ s_ioCount[i], s_ioKey[i], s_ioSize[i], s_ioLast[i] });
+    std::sort(ios.begin(), ios.end(), [](const Io &a, const Io &b) { return a.count > b.count; });
+    len = snprintf(line, sizeof(line), "I/O reads per frame: %.0f; most read:", s_ioReads / f);
+    for (size_t i = 0; i < ios.size() && i < 6; i++)
+      len += snprintf(line + len, sizeof(line) - len, " %08X/%u x%.0f =%llX", ios[i].addr, ios[i].size,
+                      ios[i].count / f, (unsigned long long)ios[i].last);
+    InfoLog("%s", line);
+
+    len = snprintf(line, sizeof(line), "IRQs raised (enable mask %02X):", s_irqEnable & 0xFF);
+    bool anyIrq = false;
+    for (unsigned i = 0; i < 16; i++)
+      if (s_irqCount[i]) { len += snprintf(line + len, sizeof(line) - len, " %02X x%u", 1u << i, s_irqCount[i]); anyIrq = true; }
+    if (!anyIrq)
+      len += snprintf(line + len, sizeof(line) - len, " none");
+    InfoLog("%s", line);
+
     if (renderFrames)
     {
       const double rf = double(renderFrames);
@@ -239,5 +292,9 @@ namespace SwitchProfile
     memset(s_pcKey, 0, sizeof(s_pcKey));
     memset(s_pcCount, 0, sizeof(s_pcCount));
     s_entries = 0;
+    memset(s_ioKey, 0, sizeof(s_ioKey));
+    memset(s_ioCount, 0, sizeof(s_ioCount));
+    s_ioReads = 0;
+    memset(s_irqCount, 0, sizeof(s_irqCount));
   }
 }

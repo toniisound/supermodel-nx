@@ -110,6 +110,11 @@ public:
   UINT16 Read16(UINT32 addr);
   UINT32 Read32(UINT32 addr);
   UINT64 Read64(UINT32 addr);
+  // Handlers behind Read8..Read64 (the Switch build counts I/O reads for the log)
+  UINT8 Read8Impl(UINT32 addr);
+  UINT16 Read16Impl(UINT32 addr);
+  UINT32 Read32Impl(UINT32 addr);
+  UINT64 Read64Impl(UINT32 addr);
   void Write8(UINT32 addr, UINT8 data);
   void Write16(UINT32 addr, UINT16 data);
   void Write32(UINT32 addr, UINT32 data);

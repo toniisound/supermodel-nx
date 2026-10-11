@@ -958,6 +958,54 @@ void CModel3::WriteSystemRegister(unsigned reg, UINT8 data)
  */
 UINT8 CModel3::Read8(UINT32 addr)
 {
+#ifdef __SWITCH__
+  if (addr >= 0x00800000 && addr < 0xFF000000) {
+    UINT8 v = Read8Impl(addr);
+    SwitchProfile::CountIoRead(addr, 1, v);
+    return v;
+  }
+#endif
+  return Read8Impl(addr);
+}
+
+UINT16 CModel3::Read16(UINT32 addr)
+{
+#ifdef __SWITCH__
+  if (addr >= 0x00800000 && addr < 0xFF000000) {
+    UINT16 v = Read16Impl(addr);
+    SwitchProfile::CountIoRead(addr, 2, v);
+    return v;
+  }
+#endif
+  return Read16Impl(addr);
+}
+
+UINT32 CModel3::Read32(UINT32 addr)
+{
+#ifdef __SWITCH__
+  if (addr >= 0x00800000 && addr < 0xFF000000) {
+    UINT32 v = Read32Impl(addr);
+    SwitchProfile::CountIoRead(addr, 4, v);
+    return v;
+  }
+#endif
+  return Read32Impl(addr);
+}
+
+UINT64 CModel3::Read64(UINT32 addr)
+{
+#ifdef __SWITCH__
+  if (addr >= 0x00800000 && addr < 0xFF000000) {
+    UINT64 v = Read64Impl(addr);
+    SwitchProfile::CountIoRead(addr, 8, v);
+    return v;
+  }
+#endif
+  return Read64Impl(addr);
+}
+
+UINT8 CModel3::Read8Impl(UINT32 addr)
+{
   // RAM (most frequently accessed)
   if (addr<0x00800000)
     return ram[addr^3];
@@ -1081,7 +1129,7 @@ UINT8 CModel3::Read8(UINT32 addr)
   return 0xFF;
 }
 
-UINT16 CModel3::Read16(UINT32 addr)
+UINT16 CModel3::Read16Impl(UINT32 addr)
 {
   UINT16  data;
 
@@ -1198,7 +1246,7 @@ UINT16 CModel3::Read16(UINT32 addr)
   return 0xFFFF;
 }
 
-UINT32 CModel3::Read32(UINT32 addr)
+UINT32 CModel3::Read32Impl(UINT32 addr)
 {
   UINT32  data;
 
@@ -1391,7 +1439,7 @@ UINT32 CModel3::Read32(UINT32 addr)
   return 0xFFFFFFFF;
 }
 
-UINT64 CModel3::Read64(UINT32 addr)
+UINT64 CModel3::Read64Impl(UINT32 addr)
 {
   UINT64  data;
 

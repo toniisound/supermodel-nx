@@ -942,6 +942,8 @@ static void FixGunCalibration(const Game &game)
   {
     if (result == LibretroNvramSettings::ApplyResult::InvalidLayout)
       InfoLog("Gun calibration: '%s' has an unexpected layout, left as it is.", path.c_str());
+    else
+      InfoLog("Gun calibration: already set in '%s'.", path.c_str());
     return;
   }
   memcpy(eeprom, words, sizeof(words));

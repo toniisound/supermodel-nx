@@ -83,6 +83,13 @@ namespace SwitchProfile
   // C dispatch loop entries (one per JIT block or chain run)
   void CountBlockEntry(uint32_t pc);
 
+  // Main board reads outside RAM and CROM (CModel3::Read8..Read64): which
+  // registers a game polls, e.g. while it waits for the hardware.
+  void CountIoRead(uint32_t addr, unsigned size, uint64_t value);
+
+  // Interrupts raised (CIRQ::Assert) and the enable mask at the time
+  void CountIrq(unsigned bits, unsigned enable);
+
   void Report();
 }
 

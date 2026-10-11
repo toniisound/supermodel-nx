@@ -2,6 +2,7 @@
 #include <GL/glew.h>
 #include <cstring>
 #include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -1415,6 +1416,31 @@ static float GetDPIScale(SDL_Window* window)
     return ddpi / 96.0f;
 }
 
+// The menu edits and saves the [ Global ] section only. Keep the game
+// sections the player added by hand (e.g. "[ lostwsga ]"), with their
+// comments, by copying their text from the file being replaced.
+static std::string ReadGameSections(const std::string& path)
+{
+    std::ifstream in(path);
+    std::string line, out;
+    bool keep = false;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        size_t start = line.find_first_not_of(" \t");
+        if (start != std::string::npos && line[start] == '[') {
+            size_t end = line.find(']', start);
+            std::string name = end == std::string::npos ? "" : line.substr(start + 1, end - start - 1);
+            name.erase(0, name.find_first_not_of(" \t"));
+            name.erase(name.find_last_not_of(" \t") + 1);
+            keep = !name.empty() && name != "Global";
+        }
+        if (keep)
+            out += line + "\n";
+    }
+    return out;
+}
+
 std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Node& config)
 {
     // Initialize SDL
@@ -1577,7 +1603,12 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
     }
     
     if (saveSettings) {
+        const std::string gameSections = ReadGameSections(configPath);
         Util::Config::WriteINIFile(configPath, config, "");
+        if (!gameSections.empty()) {
+            std::ofstream out(configPath, std::ios::app);
+            out << gameSections;
+        }
     }
 
 exitNoSave:

@@ -18,6 +18,7 @@
 #include "Supermodel.h"
 #include "OSD/Logger.h"
 #include "CPU/PowerPC/PPCDisasm.h"
+#include "CPU/PowerPC/ppc.h"
 #include <GL/glew.h>
 
 #include <algorithm>
@@ -232,6 +233,36 @@ namespace SwitchProfile
     for (size_t i = 0; i < pcs.size() && i < 6; i++)
       len += snprintf(line + len, sizeof(line) - len, " %08X x%.0f", pcs[i].pc, pcs[i].count / f);
     InfoLog("%s", line);
+
+    // When the CPU sits in one place (a game waiting for something), show the
+    // code there, the registers and the RAM words its loads read, once per
+    // new place: enough to see what it waits for.
+    static uint32_t s_dumpedPc = 0;
+    if (!pcs.empty() && pcs[0].pc < 0x00800000 && pcs[0].pc != s_dumpedPc &&
+        pcs[0].count / f >= 300.0 && s_entries < 4000ull * frames)
+    {
+      s_dumpedPc = pcs[0].pc;
+      InfoLog("CPU waiting at %08X: MSR=%08X LR=%08X", pcs[0].pc, ppc_read_msr(), ppc_get_lr());
+      for (int r = 0; r < 32; r += 8)
+        InfoLog("  r%-2d %08X %08X %08X %08X %08X %08X %08X %08X", r,
+                ppc_get_gpr(r), ppc_get_gpr(r + 1), ppc_get_gpr(r + 2), ppc_get_gpr(r + 3),
+                ppc_get_gpr(r + 4), ppc_get_gpr(r + 5), ppc_get_gpr(r + 6), ppc_get_gpr(r + 7));
+      for (uint32_t a = pcs[0].pc - 0x20; a < pcs[0].pc + 0x40; a += 4)
+      {
+        const uint32_t op = ppc_read_opcode_at(a);
+        char mnem[64] = "?", oprs[128] = "";
+        DisassemblePowerPC(op, a, mnem, oprs, true);
+        char extra[64] = "";
+        const uint32_t primary = op >> 26, rA = (op >> 16) & 31;
+        if (primary >= 32 && primary <= 35 && rA != 0)   // lwz/lwzu/lbz/lbzu: show the word read
+        {
+          const uint32_t ea = ppc_get_gpr(rA) + (uint32_t)(int32_t)(int16_t)(op & 0xFFFF);
+          if (ea < 0x00800000)
+            snprintf(extra, sizeof(extra), "  ; [%08X] = %08X", ea, ppc_read_opcode_at(ea & ~3u));
+        }
+        InfoLog("  %c %08X: %08X  %-8s %s%s", a == pcs[0].pc ? '>' : ' ', a, op, mnem, oprs, extra);
+      }
+    }
 
     // Most polled I/O registers, with the last value read
     struct Io { uint32_t count; uint32_t addr; unsigned size; uint64_t last; };

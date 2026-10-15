@@ -358,6 +358,7 @@ extern void ppc_set_timer_ratio(int ratio);
 extern void ppc_set_jit_enabled(bool enabled);
 extern void ppc_code_written(UINT32 addr, UINT32 len);	// a device (DMA) wrote RAM: drop JIT code compiled from it
 extern void ppc_set_jit_interpret(UINT32 groups);	// instruction groups the JIT leaves to the interpreter (diagnostics)
+extern void ppc_set_jit_chain_indirect(bool enabled);	// blr/bctr jump straight to compiled blocks
 extern void ppc_set_jit_inline_dec(bool enabled);	// JIT reads DEC inline (else interpreter)
 extern void ppc_set_jit_native_fp(bool enabled);	// JIT translates FP instructions (else interpreter)
 

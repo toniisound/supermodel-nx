@@ -367,6 +367,7 @@ static int OFF_SRR0;
 static int OFF_SRR1;
 static int OFF_DEC_TRIGGER;
 static int OFF_DEC_BASE;
+bool g_jit_chain_indirect = true;   // blr/bctr jump straight to a compiled target (config "JitChainIndirect")
 bool g_jit_inline_dec = true;   // mfspr DEC compiled inline (config "JitInlineDEC")
 
 // Diagnostics (config "JitInterpret"): instruction groups left to the
@@ -445,7 +446,7 @@ static void compute_offsets()
 static constexpr int PPC_PTR = 19;
 
 // Scratch registers (caller-saved, safe to use freely between C calls)
-static constexpr int W0 = 0, W1 = 1, W2 = 2, W3 = 3, W4 = 4;
+static constexpr int W0 = 0, W1 = 1, W2 = 2, W3 = 3, W4 = 4, W6 = 6;
 static constexpr int X16 = 16;   // IP0: scratch for call targets
 
 // FP scratch registers (D0-D7 are caller-saved; we use D0-D2 for JIT ops)
@@ -989,6 +990,57 @@ static void emit_epilogue_chained(Arm64Emitter &e, int inst_count, uint32_t last
     e.MOV_W32(W0, last_pc);
     e.MOV_W32(W1, next_pc);
     e.STP_W(W0, W1, PPC_PTR, OFF_PC);
+    e.LDP_post(PPC_PTR, 30, A64_SP, 16);
+    e.RET();
+}
+
+// Epilogue for blr/bctr (target in W_npc): when the target block is already
+// compiled (fast cache hit), jump to it directly like the static chained
+// epilogue, instead of returning to the C dispatch loop. A game polling in a
+// small function call loop (The Lost World: two dispatches per ~9 guest
+// instructions, 380k per frame) otherwise spends most of its time there.
+static void emit_epilogue_indirect(Arm64Emitter &e, int inst_count, uint32_t last_pc, int W_npc)
+{
+    if (!g_jit_chain_indirect) {
+        emit_epilogue_npc_reg(e, inst_count, last_pc, W_npc);
+        return;
+    }
+    e.LDR_W(W4, PPC_PTR, OFF_ICOUNT);
+    if (inst_count <= 4095)
+        e.SUBS_W_IMM(W4, W4, (uint32_t)inst_count);
+    else {
+        e.MOV_W32(W0, (uint32_t)inst_count);
+        e.SUBS_W(W4, W4, W0);
+    }
+    e.STR_W(W4, PPC_PTR, OFF_ICOUNT);
+    uint32_t *exit_icount = e.emit_B_COND_placeholder(A64_LE);
+    e.LDR_W(W4, PPC_PTR, OFF_INT_PENDING);
+    uint32_t *exit_irq = e.emit_CBNZ_W_placeholder(W4);
+
+    // X5 = fast_cache[(npc >> 2) & mask]
+    e.MOV_X64(5, (uint64_t)(void *)JitArm64::get().fast_cache_base());
+    e.UBFM_W(W6, W_npc, 2, 13);                 // slot (12 bits)
+    e.LSL_W_IMM(W6, W6, 3);
+    e.ADD_X_UXTW(5, 5, W6);
+    e.LDR_X(5, 5, 0);
+    uint32_t *exit_miss = e.ptr();
+    e.emit(0xB4000000 | 5);                     // CBZ X5, slow
+    e.LDR_W(W6, 5, (uint32_t)offsetof(JitBlock, start_pc));
+    e.CMP_W(W6, W_npc);
+    uint32_t *exit_other = e.emit_B_COND_placeholder(A64_NE);
+    e.LDR_X(7, 5, (uint32_t)offsetof(JitBlock, fn));
+    e.MOV_X(0, PPC_PTR);
+    e.LDP_post(PPC_PTR, 30, A64_SP, 16);
+    e.BR(7);
+
+    // Slow exit: icount already charged; write pc/npc and return to C.
+    uint32_t *slow = e.ptr();
+    e.patch_B_COND(exit_icount, slow);
+    e.patch_CBZ(exit_irq, slow);
+    e.patch_CBZ(exit_miss, slow);
+    e.patch_B_COND(exit_other, slow);
+    e.MOV_W32(W1, last_pc);
+    e.STP_W(W1, W_npc, PPC_PTR, OFF_PC);
     e.LDP_post(PPC_PTR, 30, A64_SP, 16);
     e.RET();
 }
@@ -3636,7 +3688,7 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
                     e.CSEL_W(W3, W3, W4, cond_on_clear ? A64_NE : A64_EQ);
                 }
 
-                emit_epilogue_npc_reg(e, inst_count + 1, pc, W3);
+                emit_epilogue_indirect(e, inst_count + 1, pc, W3);
                 terminated = true;
                 handled    = true;
             }

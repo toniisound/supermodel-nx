@@ -137,6 +137,9 @@ private:
     static constexpr uint32_t FAST_CACHE_SIZE = 4096;
     static constexpr uint32_t FAST_CACHE_MASK = FAST_CACHE_SIZE - 1;
     JitBlock *m_fast_cache[FAST_CACHE_SIZE] = {};
+public:
+    JitBlock **fast_cache_base() { return m_fast_cache; }
+private:
 
     bool m_dual_map = false;  // true when write ptr != exec ptr
 

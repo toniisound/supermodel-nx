@@ -409,7 +409,7 @@ void R3DShader::GetUniformLocations()
 	m_locTextureInverted	= glGetUniformLocation(m_shaderProgram, "textureInverted");
 	m_locTexWrapMode		= glGetUniformLocation(m_shaderProgram, "textureWrapMode");
 	m_locColourLayer		= glGetUniformLocation(m_shaderProgram, "colourLayer");
-	m_locPolyAlpha			= glGetUniformLocation(m_shaderProgram, "polyAlpha");
+	m_locLayerDepthBias		= glGetUniformLocation(m_shaderProgram, "layerDepthBias");
 
 	m_locFogIntensity		= glGetUniformLocation(m_shaderProgram, "fogIntensity");
 	m_locFogDensity			= glGetUniformLocation(m_shaderProgram, "fogDensity");
@@ -599,11 +599,6 @@ void R3DShader::SetMeshUniforms(const Mesh* m)
 		m_translatorMap = m->translatorMap;
 	}
 
-	if (m_dirtyMesh || m->polyAlpha != m_polyAlpha) {
-		glUniform1i(m_locPolyAlpha, m->polyAlpha);
-		m_polyAlpha = m->polyAlpha;
-	}
-
 	if (m_dirtyMesh || m->wrapModeU != m_texWrapMode[0] || m->wrapModeV != m_texWrapMode[1]) {
 		m_texWrapMode[0] = m->wrapModeU;
 		m_texWrapMode[1] = m->wrapModeV;
@@ -624,12 +619,23 @@ void R3DShader::SetMeshUniforms(const Mesh* m)
 			glStencilFunc(GL_EQUAL, 0, 0b01111111);			// basically stencil test passes if the value is zero
 			glStencilOp(GL_KEEP, GL_KEEP, GL_INCR); // Increment only when both stencil and depth tests pass.
 			glStencilMask(0b01111111);
+
+			// only a decal that is actually written marks the pixel. Incrementing on depth fail let hidden
+			// decals (e.g. on a tile behind a rise) block visible ones drawn later (Digital Bayou road).
+
 		}
 		else {
 			glStencilFunc(GL_ALWAYS, m_noLosReturn << 7, 0b10000000);
 			glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 			glStencilMask(0b10000000);
 		}
+
+		// PRO-1000 layered polygons are decals that must win against coplanar non-layered polygons regardless
+		// of draw order. Depth is reverse z (larger = closer), so scale it up slightly for layered polys.
+		// Decal vertices are 17.7 fixed point, so they can sit ~1/128 unit off their base plane; at grazing
+		// angles that is ~0.1% of depth, often on the losing side. 1/512 (~0.2%) covers it with margin.
+		const float layerDepthBias = 1.0f + 1.0f / 512.0f;
+		glUniform1f(m_locLayerDepthBias, m_layered ? layerDepthBias : 1.0f);
 	}
 
 	m_dirtyMesh = false;

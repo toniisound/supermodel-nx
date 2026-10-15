@@ -104,9 +104,9 @@ uniform float	fogAttenuation;
 uniform float	fogAmbient;
 uniform bool	fixedShading;
 uniform bool	smoothShading;
+uniform float	layerDepthBias = 1.0;		// PRO-1000: >1.0 pulls layered polys towards the viewer (reverse z)
 uniform int		hardwareStep;
 uniform int		colourLayer;
-uniform bool	polyAlpha;
 
 // matrices (shared with vertex shader — must be highp in both to match vertex precision)
 uniform highp mat4	projMat;
@@ -147,7 +147,7 @@ void main()
 	}
 
 #ifndef R3D_HW_DEPTH
-	gl_FragDepth = projMat[3][2] * gl_FragCoord.w;	// (with R3D_HW_DEPTH the rasteriser produces this value, see CNew3D::m_clipControl)
+	gl_FragDepth = projMat[3][2] * gl_FragCoord.w * layerDepthBias;	// (with R3D_HW_DEPTH the rasteriser produces this value, see CNew3D::m_clipControl; no layer bias, which only PRO-1000 decals need)
 #endif
 
 	fogData = vec4(fogColour.rgb * fogAmbient, CalcFog());

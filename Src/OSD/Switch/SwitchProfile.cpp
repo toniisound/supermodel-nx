@@ -337,20 +337,85 @@ namespace SwitchProfile
           InfoLog("  %c %08X: %08X  %-8s %s", a == pcs[1].pc ? '>' : ' ', a, op, mnem, oprs);
         }
       }
-      for (uint32_t a = pcs[0].pc - 0x20; a < pcs[0].pc + 0x40; a += 4)
+      // Registers set by lis/li inside the window are tracked so the address
+      // of "lis rX,hi; lwz rY,lo(rX)" is right (the live GPRs belong to
+      // whatever code ran last, often an interrupt handler).
+      std::vector<uint32_t> watched;
       {
-        const uint32_t op = ppc_read_opcode_at(a);
-        char mnem[64] = "?", oprs[128] = "";
-        DisassemblePowerPC(op, a, mnem, oprs, true);
-        char extra[64] = "";
-        const uint32_t primary = op >> 26, rA = (op >> 16) & 31;
-        if (primary >= 32 && primary <= 35 && rA != 0)   // lwz/lwzu/lbz/lbzu: show the word read
+        bool known[32] = {};
+        uint32_t kval[32] = {};
+        for (uint32_t a = pcs[0].pc - 0x20; a < pcs[0].pc + 0x40; a += 4)
         {
-          const uint32_t ea = ppc_get_gpr(rA) + (uint32_t)(int32_t)(int16_t)(op & 0xFFFF);
-          if (ea < 0x00800000)
-            snprintf(extra, sizeof(extra), "  ; [%08X] = %08X", ea, ppc_read_opcode_at(ea & ~3u));
+          const uint32_t op = ppc_read_opcode_at(a);
+          char mnem[64] = "?", oprs[128] = "";
+          DisassemblePowerPC(op, a, mnem, oprs, true);
+          char extra[64] = "";
+          const uint32_t primary = op >> 26, rD = (op >> 21) & 31, rA = (op >> 16) & 31;
+          const uint32_t simm = (uint32_t)(int32_t)(int16_t)(op & 0xFFFF);
+          if (primary >= 32 && primary <= 35 && rA != 0)   // lwz/lwzu/lbz/lbzu: show the word read
+          {
+            const uint32_t ea = (known[rA] ? kval[rA] : ppc_get_gpr(rA)) + simm;
+            if (ea < 0x00800000)
+            {
+              snprintf(extra, sizeof(extra), "  ; [%08X] = %08X%s", ea, ppc_read_opcode_at(ea & ~3u), known[rA] ? "" : " (?)");
+              if (known[rA] && watched.size() < 4 &&
+                  std::find(watched.begin(), watched.end(), ea) == watched.end())
+                watched.push_back(ea);
+            }
+          }
+          InfoLog("  %c %08X: %08X  %-8s %s%s", a == pcs[0].pc ? '>' : ' ', a, op, mnem, oprs, extra);
+          // Track constants
+          if (primary == 15 && rA == 0)      { known[rD] = true; kval[rD] = (op & 0xFFFF) << 16; }
+          else if (primary == 14 && rA == 0) { known[rD] = true; kval[rD] = simm; }
+          else if (primary == 24 && rD == rA && known[rA]) { kval[rA] |= (op & 0xFFFF); }   // ori
+          else if (primary >= 32 && primary <= 47 && primary != 36 && primary != 37 && primary != 38 &&
+                   primary != 39 && primary != 44 && primary != 45 && primary != 47)
+            known[rD] = false;               // loads overwrite rD
+          else if (primary == 31 || primary == 14 || primary == 15 || primary == 12 || primary == 13 ||
+                   primary == 7 || primary == 8 || primary == 21 || primary == 23)
+            known[rD] = false, known[rA] = false;
         }
-        InfoLog("  %c %08X: %08X  %-8s %s%s", a == pcs[0].pc ? '>' : ' ', a, op, mnem, oprs, extra);
+      }
+
+      // Who writes the words the waiting code reads? Scan the code in RAM
+      // for stores to each address made with "lis rX,hi ... st* rY,lo(rX)".
+      for (uint32_t ea : watched)
+      {
+        InfoLog("  [%08X] = %08X now; stores to it found in RAM code:", ea, ppc_read_opcode_at(ea & ~3u));
+        const uint32_t hi = (ea + 0x8000) >> 16, lo = ea & 0xFFFF;
+        int hits = 0;
+        for (uint32_t a = 0x100; a < 0x00400000 && hits < 6; a += 4)
+        {
+          const uint32_t op = ppc_read_opcode_at(a);
+          const uint32_t primary = op >> 26;
+          if (!(primary == 36 || primary == 37 || primary == 38 || primary == 44 ||
+                primary == 32 || primary == 34) || (op & 0xFFFF) != lo)
+            continue;
+          const uint32_t rA = (op >> 16) & 31;
+          bool match = false;
+          for (uint32_t b = 4; b <= 0x40 && b <= a; b += 4)
+          {
+            const uint32_t pop = ppc_read_opcode_at(a - b);
+            if ((pop >> 26) == 15 && ((pop >> 16) & 31) == 0 && ((pop >> 21) & 31) == rA)
+            {
+              match = ((pop & 0xFFFF) == hi);
+              break;
+            }
+          }
+          if (!match || primary == 32 || primary == 34)
+            continue;
+          hits++;
+          InfoLog("    store at %08X:", a);
+          for (uint32_t c = a - 0x30; c <= a + 0x0C; c += 4)
+          {
+            const uint32_t cop = ppc_read_opcode_at(c);
+            char mnem[64] = "?", oprs[128] = "";
+            DisassemblePowerPC(cop, c, mnem, oprs, true);
+            InfoLog("    %c %08X: %08X  %-8s %s", c == a ? '>' : ' ', c, cop, mnem, oprs);
+          }
+        }
+        if (!hits)
+          InfoLog("    none (written through a pointer?)");
       }
     }
 

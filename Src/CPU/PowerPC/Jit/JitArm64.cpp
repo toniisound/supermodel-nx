@@ -260,6 +260,8 @@ void JitArm64::flush()
 #endif
     memset(m_fast_cache, 0, sizeof(m_fast_cache));
     memset(m_code_pages,  0, sizeof(m_code_pages));
+    memset(m_code_words,  0, sizeof(m_code_words));
+    m_stats.flushes++;
 }
 
 void JitArm64::invalidate_containing(uint32_t addr)
@@ -283,6 +285,7 @@ void JitArm64::smc_write(uint32_t addr)
 {
     if ((addr >> 24) != 0u) return;                          // not work RAM
     if (!m_code_pages[(addr >> 12) & (CODE_PAGE_COUNT - 1)]) return; // page has no JIT blocks
+    if (!is_code_word(addr)) return;                         // data next to code, not code
     // Flush the entire cache on SMC to prevent stale chained branches from
     // executing invalidated blocks. Fine-grained invalidation (invalidate_containing)
     // leaves baked B instructions in surviving blocks pointing at evicted code.
@@ -3847,6 +3850,10 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
         uint32_t p1 = (blk.end_pc > 0 ? blk.end_pc - 1 : start_pc) >> 12;
         for (uint32_t p = p0; p <= p1; ++p)
             m_code_pages[p & (CODE_PAGE_COUNT - 1)] = 1;
+        for (uint32_t a = start_pc; a < blk.end_pc; a += 4) {
+            const uint32_t w = (a & 0x00FFFFFF) >> 2;
+            m_code_words[w >> 6] |= 1ull << (w & 63);
+        }
     }
 
     // Register deferred fixups from this block for future backpatching, then

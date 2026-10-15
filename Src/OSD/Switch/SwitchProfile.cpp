@@ -268,6 +268,15 @@ namespace SwitchProfile
     for (unsigned i = 0; i < kPcSlots; i++)
       if (s_pcCount[i]) pcs.push_back({ s_pcCount[i], s_pcKey[i] });
     std::sort(pcs.begin(), pcs.end(), [](const Pc &a, const Pc &b) { return a.count > b.count; });
+    {
+      static UINT64 s_lastCompiled = 0, s_lastFlushes = 0;
+      UINT64 compiled = 0, flushes = 0;
+      ppc_debug_jit_stats(&compiled, &flushes);
+      InfoLog("JIT per frame: %.1f blocks compiled, %.2f cache flushes",
+              (compiled - s_lastCompiled) / f, (flushes - s_lastFlushes) / f);
+      s_lastCompiled = compiled;
+      s_lastFlushes = flushes;
+    }
     len = snprintf(line, sizeof(line), "JIT block entries per frame: %.0f; hottest:", s_entries / f);
     for (size_t i = 0; i < pcs.size() && i < 6; i++)
       len += snprintf(line + len, sizeof(line) - len, " %08X x%.0f", pcs[i].pc, pcs[i].count / f);

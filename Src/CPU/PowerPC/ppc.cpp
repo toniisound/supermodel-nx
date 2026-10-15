@@ -1191,6 +1191,17 @@ void ppc_write_sr(unsigned num, UINT32 val)
 	ppc.sr[num&15] = val;
 }
 
+void ppc_debug_jit_stats(UINT64 *compiled, UINT64 *flushes)
+{
+#ifdef HAVE_PPC_JIT
+	const JitArm64::Stats &s = JitArm64::get().get_stats();
+	*compiled = s.blocks_compiled;
+	*flushes = s.flushes;
+#else
+	*compiled = *flushes = 0;
+#endif
+}
+
 void ppc_debug_dec_state(UINT32 *dec, int *pending, int *trigger, int *ratio)
 {
 	*dec = DEC;

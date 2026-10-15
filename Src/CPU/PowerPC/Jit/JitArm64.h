@@ -89,6 +89,7 @@ public:
         uint64_t compile_failures;  // compile() returned nullptr
         uint64_t fixups_registered; // deferred fixup sites registered for backpatching
         uint64_t fixups_applied;    // fixup sites actually patched when target compiled
+        uint64_t flushes;           // whole-cache flushes (SMC, DMA over code, full buffer)
     };
     const Stats &get_stats() const { return m_stats; }
     void log_stats() const;
@@ -147,6 +148,17 @@ private:
     // Set when a block is compiled that covers the page; cleared only by flush().
     static constexpr uint32_t CODE_PAGE_COUNT = 4096;
     uint8_t m_code_pages[CODE_PAGE_COUNT] = {};
+    // One bit per RAM word that belongs to a compiled block (16 MB of
+    // addresses). A store flushes the cache only when it hits one of these
+    // words, not any word of a 4 KB page that holds code: games keep data
+    // next to their code and wrote it every frame, recompiling everything.
+    static constexpr uint32_t CODE_WORD_BITS = 1u << 22;
+    uint64_t m_code_words[CODE_WORD_BITS / 64] = {};
+    bool is_code_word(uint32_t addr) const
+    {
+        const uint32_t w = (addr & 0x00FFFFFF) >> 2;
+        return (m_code_words[w >> 6] >> (w & 63)) & 1;
+    }
 
     Stats m_stats = {};
 };

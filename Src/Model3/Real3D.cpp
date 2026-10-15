@@ -649,6 +649,7 @@ void CReal3D::DMACopy(void)
     while (dmaLength != 0)
     {
       uint32_t data = Bus->Read32(dmaSrc);
+      ppc_code_written(dmaDest);
       Bus->Write32(dmaDest, FLIPENDIAN32(data));
       dmaSrc += 4;
       dmaDest += 4;
@@ -659,6 +660,7 @@ void CReal3D::DMACopy(void)
   {
     while (dmaLength != 0)
     {
+      ppc_code_written(dmaDest);
       Bus->Write32(dmaDest, Bus->Read32(dmaSrc));
       dmaSrc += 4;
       dmaDest += 4;

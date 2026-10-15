@@ -588,6 +588,21 @@ static void ppc_smc_write(UINT32 addr) { JitArm64::get().smc_write(addr); }
 static bool s_jit_executing = false;
 static bool s_ppc_jit_enabled = true;
 
+// Writes to RAM by other devices (53C810 SCRIPTS "Move Memory", Real3D DMA)
+// do not go through the JIT's store helpers, so code a game copies over
+// already-compiled code that way must be dropped here. Step 1.x games use the
+// 53C810 as a memory-to-memory DMA engine (The Lost World loads its program
+// with it after the boot screens).
+void ppc_code_written(UINT32 addr)
+{
+#ifdef HAVE_PPC_JIT
+	if (s_ppc_jit_enabled)
+		JitArm64::get().smc_write(addr);
+#else
+	(void)addr;
+#endif
+}
+
 // Cached outside ppc struct so it survives ppc_base_init()'s memset.
 static void *s_jit_ram_base = nullptr;
 

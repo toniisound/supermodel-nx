@@ -27,6 +27,9 @@
 
 void ppc603_exception(int exception)
 {
+#ifdef __SWITCH__
+	SwitchProfile::TraceException(exception, ppc.npc, MSR);
+#endif
 #ifdef SUPERMODEL_DEBUGGER
 		if (PPCDebug != NULL)
 			PPCDebug->CPUException(exception);
@@ -347,6 +350,7 @@ int ppc_execute(int cycles)
 
 #ifdef __SWITCH__
 				SwitchProfile::CountBlockEntry(ppc.npc);
+				SwitchProfile::TraceEntry(ppc.npc, MSR);
 #endif
 				ppc.irq_in_block = 0;
 				s_jit_executing = true;

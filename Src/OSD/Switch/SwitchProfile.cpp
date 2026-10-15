@@ -86,6 +86,13 @@ namespace SwitchProfile
     uint32_t s_irqCount[16];
     unsigned s_irqEnable = 0;
 
+    // History ring: kind 0 = block entry, 1 + type = exception
+    struct Trace { uint32_t pc, msr; int kind; };
+    constexpr unsigned kTraceSize = 64;
+    Trace s_trace[kTraceSize];
+    unsigned s_traceHead = 0;
+    uint32_t s_excCount[32];
+
     int GroupIndex(uint32_t primary)
     {
       switch (primary) { case 19: return 0; case 31: return 1; case 59: return 2; case 63: return 3; }
@@ -132,6 +139,19 @@ namespace SwitchProfile
     s_ioCount[slot]++;
     s_ioSize[slot] = (uint8_t)size;
     s_ioLast[slot] = value;
+  }
+
+  void TraceEntry(uint32_t pc, uint32_t msr)
+  {
+    Trace &t = s_trace[s_traceHead++ & (kTraceSize - 1)];
+    t.pc = pc; t.msr = msr; t.kind = 0;
+  }
+
+  void TraceException(int type, uint32_t srr0, uint32_t msr)
+  {
+    Trace &t = s_trace[s_traceHead++ & (kTraceSize - 1)];
+    t.pc = srr0; t.msr = msr; t.kind = 1 + type;
+    s_excCount[type & 31]++;
   }
 
   void CountIrq(unsigned bits, unsigned enable)
@@ -247,6 +267,41 @@ namespace SwitchProfile
         InfoLog("  r%-2d %08X %08X %08X %08X %08X %08X %08X %08X", r,
                 ppc_get_gpr(r), ppc_get_gpr(r + 1), ppc_get_gpr(r + 2), ppc_get_gpr(r + 3),
                 ppc_get_gpr(r + 4), ppc_get_gpr(r + 5), ppc_get_gpr(r + 6), ppc_get_gpr(r + 7));
+      {
+        char exl[256];
+        int el = snprintf(exl, sizeof(exl), "  exceptions taken per frame (by type):");
+        for (int t = 0; t < 32; t++)
+          if (s_excCount[t]) el += snprintf(exl + el, sizeof(exl) - el, " %d x%.1f", t, s_excCount[t] / f);
+        InfoLog("%s", exl);
+        // History, oldest first, repeats folded
+        InfoLog("  recent history (block entries pc/msr, exceptions EXC type at srr0):");
+        const unsigned head = s_traceHead;
+        unsigned i = head >= kTraceSize ? head - kTraceSize : 0;
+        while (i < head)
+        {
+          const Trace t = s_trace[i & (kTraceSize - 1)];
+          unsigned n = 1;
+          while (i + n < head && s_trace[(i + n) & (kTraceSize - 1)].pc == t.pc &&
+                 s_trace[(i + n) & (kTraceSize - 1)].kind == t.kind && s_trace[(i + n) & (kTraceSize - 1)].msr == t.msr)
+            n++;
+          if (t.kind == 0)
+            InfoLog("    %08X msr=%08X%s", t.pc, t.msr, n > 1 ? " (repeated)" : "");
+          else
+            InfoLog("    EXC %d at %08X msr=%08X%s", t.kind - 1, t.pc, t.msr, n > 1 ? " (repeated)" : "");
+          i += n;
+        }
+      }
+      if (pcs.size() > 1 && pcs[1].pc < 0x00800000)
+      {
+        InfoLog("  code at %08X (next hottest):", pcs[1].pc);
+        for (uint32_t a = pcs[1].pc - 0x10; a < pcs[1].pc + 0x30; a += 4)
+        {
+          const uint32_t op = ppc_read_opcode_at(a);
+          char mnem[64] = "?", oprs[128] = "";
+          DisassemblePowerPC(op, a, mnem, oprs, true);
+          InfoLog("  %c %08X: %08X  %-8s %s", a == pcs[1].pc ? '>' : ' ', a, op, mnem, oprs);
+        }
+      }
       for (uint32_t a = pcs[0].pc - 0x20; a < pcs[0].pc + 0x40; a += 4)
       {
         const uint32_t op = ppc_read_opcode_at(a);
@@ -327,5 +382,6 @@ namespace SwitchProfile
     memset(s_ioCount, 0, sizeof(s_ioCount));
     s_ioReads = 0;
     memset(s_irqCount, 0, sizeof(s_irqCount));
+    memset(s_excCount, 0, sizeof(s_excCount));
   }
 }

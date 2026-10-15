@@ -398,4 +398,5 @@ extern void ppc_set_fpr(unsigned num, double val);
 extern void ppc_write_spr(unsigned spr, UINT32 val);
 extern void ppc_write_sr(unsigned num, UINT32 val);
 extern UINT32 ppc_read_msr();
+extern void ppc_debug_dec_state(UINT32 *dec, int *pending, int *trigger, int *ratio);	// diagnostics
 #endif	// INCLUDED_PPC_H

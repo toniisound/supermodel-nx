@@ -369,8 +369,15 @@ static inline UINT32 read_decrementer(void)
 	return DEC - (cycles / ppc.timer_ratio);
 }
 
+#ifdef __SWITCH__
+#include "OSD/Switch/SwitchProfile.h"
+#endif
+
 static inline void write_decrementer(UINT32 value)
 {
+#ifdef __SWITCH__
+	const UINT32 decOld = read_decrementer();
+#endif
 	if (((value&0x80000000) && !(read_decrementer()&0x80000000)))
 	{
 		/* trigger interrupt */
@@ -388,6 +395,9 @@ static inline void write_decrementer(UINT32 value)
 		ppc.dec_trigger_cycle = ppc.dec_base_icount - ((1 + DEC) * ppc.timer_ratio);
 	else
 		ppc.dec_trigger_cycle = 0x7fffffff;
+#ifdef __SWITCH__
+	SwitchProfile::CountDecWrite(ppc.pc, value, decOld, ppc.dec_trigger_cycle != 0x7fffffff);
+#endif
 }
 
 /*********************************************************************/
@@ -620,9 +630,6 @@ void ppc_set_jit_interpret(UINT32 groups)
 static void *s_jit_ram_base = nullptr;
 
 #include "PPCDisasm.h"
-#ifdef __SWITCH__
-#include "OSD/Switch/SwitchProfile.h"
-#endif
 #include "ppc603.c"
 
 /********************************************************************/
@@ -1172,6 +1179,14 @@ void ppc_write_spr(unsigned spr, UINT32 val)
 void ppc_write_sr(unsigned num, UINT32 val)
 {
 	ppc.sr[num&15] = val;
+}
+
+void ppc_debug_dec_state(UINT32 *dec, int *pending, int *trigger, int *ratio)
+{
+	*dec = DEC;
+	*pending = ppc.interrupt_pending;
+	*trigger = ppc.dec_trigger_cycle;
+	*ratio = ppc.timer_ratio;
 }
 
 UINT32 ppc_read_msr()

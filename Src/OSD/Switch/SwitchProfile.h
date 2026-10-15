@@ -96,6 +96,10 @@ namespace SwitchProfile
   void TraceException(int type, uint32_t srr0, uint32_t msr);
   void TraceSlice(uint32_t pc, uint32_t msr);
 
+  // Decrementer writes (mtspr DEC): where, the value written, the value it
+  // replaced, and whether an exception is due within the current slice.
+  void CountDecWrite(uint32_t pc, uint32_t value, uint32_t old, bool armed);
+
   void Report();
 }
 

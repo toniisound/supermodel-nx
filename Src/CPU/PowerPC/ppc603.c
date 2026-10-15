@@ -366,11 +366,15 @@ int ppc_execute(int cycles)
 				// the sentinel so DEC doesn't fire on every single dispatch.
 				if (ppc.dec_trigger_cycle != 0x7fffffff && ppc.icount <= ppc.dec_trigger_cycle)
 				{
-					// Only raise DEC when interrupts are enabled. With EE=0 the trigger
-					// stays active (dec_trigger_cycle unchanged) so it fires at the first
-					// block boundary after the game re-enables EE via mtmsr.
-					if (MSR & MSR_EE)
-						ppc.interrupt_pending |= 0x2;
+					// Like the interpreter: the decrementer exception becomes pending
+					// whatever MSR[EE] is, and is taken as soon as EE is set (mtmsr,
+					// rfi). Raising it only while EE=1 lost it for good when the
+					// trigger passed with EE=0 near the end of an execution slot: the
+					// next slot recomputes the trigger from the (now negative) DEC and
+					// finds none. The Lost World counts frames in its decrementer
+					// handler and waits forever for that count after its boot text.
+					ppc.interrupt_pending |= 0x2;
+					ppc.dec_trigger_cycle = 0x7fffffff;	// raised once; mtspr DEC re-arms it
 				}
 				if (ppc.interrupt_pending != 0)
 					ppc603_check_interrupts();

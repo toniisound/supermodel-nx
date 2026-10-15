@@ -2837,6 +2837,21 @@ int main(int argc, char **argv)
   ppc_set_jit_native_fp(s_runtime_config["JitNativeFP"].ValueAsDefault<bool>(true));
   InfoLog("Recompiler floating point: %s", s_runtime_config["JitNativeFP"].ValueAsDefault<bool>(true) ? "native" : "interpreter");
   ppc_set_jit_inline_dec(s_runtime_config["JitInlineDEC"].ValueAsDefault<bool>(true));
+  {
+    // JitInterpret = "int,cmp,branch,load,store,fpmem,fp,op31" (or "all"):
+    // instruction groups left to the interpreter, to find a translation bug.
+    const std::string list = s_runtime_config["JitInterpret"].ValueAsDefault<std::string>("");
+    static const struct { const char *name; UINT32 bit; } groups[] = {
+      { "int", 1 }, { "cmp", 2 }, { "branch", 4 }, { "load", 8 }, { "store", 16 },
+      { "fpmem", 32 }, { "fp", 64 }, { "op31", 128 }, { "all", 255 } };
+    UINT32 mask = 0;
+    for (const auto &g : groups)
+      if (list.find(g.name) != std::string::npos)
+        mask |= g.bit;
+    ppc_set_jit_interpret(mask);
+    if (mask)
+      InfoLog("Recompiler: instruction groups left to the interpreter: %s (mask %02X)", list.c_str(), mask);
+  }
   InfoLog("Recompiler decrementer reads: %s", s_runtime_config["JitInlineDEC"].ValueAsDefault<bool>(true) ? "inline" : "interpreter");
 #ifdef __SWITCH__
   InfoLog("Swap interval: %d (VSync = %d)", SDL_GL_GetSwapInterval(), s_runtime_config["VSync"].ValueAsDefault<bool>(false) ? 1 : 0);

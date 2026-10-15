@@ -72,6 +72,10 @@ public:
     // Call from every JIT write bridge that targets 0x00000000–0x00FFFFFF.
     void smc_write(uint32_t addr);
 
+    // A device (DMA) wrote [addr, addr + len): flush only if a compiled block
+    // actually covers part of that range (data copied next to code is common).
+    void dma_write(uint32_t addr, uint32_t len);
+
     // Find or compile a block for the given PC. Returns nullptr on failure.
     JitBlock *get_or_compile(uint32_t pc);
 

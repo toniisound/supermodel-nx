@@ -289,6 +289,22 @@ void JitArm64::smc_write(uint32_t addr)
     flush();
 }
 
+void JitArm64::dma_write(uint32_t addr, uint32_t len)
+{
+    if (len == 0 || (addr >> 24) != 0u) return;              // not work RAM
+    const uint32_t end = addr + len;
+    bool code_page = false;
+    for (uint32_t p = addr >> 12; p <= ((end - 1) >> 12) && !code_page; p++)
+        code_page = m_code_pages[p & (CODE_PAGE_COUNT - 1)] != 0;
+    if (!code_page) return;
+    for (const auto &it : m_cache) {
+        if (it.second.start_pc < end && it.second.end_pc > addr) {
+            flush();
+            return;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Block lookup
 // ---------------------------------------------------------------------------
@@ -352,6 +368,35 @@ static int OFF_SRR1;
 static int OFF_DEC_TRIGGER;
 static int OFF_DEC_BASE;
 bool g_jit_inline_dec = true;   // mfspr DEC compiled inline (config "JitInlineDEC")
+
+// Diagnostics (config "JitInterpret"): instruction groups left to the
+// interpreter, to find which translation a game breaks. Bits as in
+// JitInterpretGroup().
+UINT32 g_jit_interpret_groups = 0;
+
+static UINT32 JitInterpretGroup(uint32_t op)
+{
+    switch (op >> 26) {
+    case 7: case 8: case 12: case 13: case 14: case 15:
+    case 20: case 21: case 23: case 24: case 25: case 26: case 27: case 28: case 29:
+        return 1;       // int: integer ALU, rotates, logical immediates
+    case 10: case 11:
+        return 2;       // cmp
+    case 16: case 17: case 18: case 19:
+        return 4;       // branch (and CR ops, sc)
+    case 32: case 33: case 34: case 35: case 40: case 41: case 42: case 43: case 46:
+        return 8;       // load
+    case 36: case 37: case 38: case 39: case 44: case 45: case 47:
+        return 16;      // store
+    case 48: case 49: case 50: case 51: case 52: case 53: case 54: case 55:
+        return 32;      // fpmem
+    case 59: case 63:
+        return 64;      // fp
+    case 31:
+        return 128;     // op31: indexed loads/stores, ALU, SPRs
+    }
+    return 0;
+}
 static int OFF_TIMER_RATIO;
 static int OFF_INT_PENDING;
 static int OFF_SR;
@@ -3196,6 +3241,23 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
 
         int primary = op >> 26;
         bool handled = false;
+
+        if (g_jit_interpret_groups & JitInterpretGroup(op)) {
+            emit_fallback(e, op, pc);
+            // Branches and anything that may raise an exception set ppc.npc:
+            // end the block there.
+            const int xo31 = (op >> 1) & 0x3FF;
+            if (primary == 16 || primary == 17 || primary == 18 || primary == 19 ||
+                (primary == 31 && (xo31 == 146 || xo31 == 467 || xo31 == 4))) {
+                e.LDR_W(W3, PPC_PTR, OFF_NPC);
+                emit_epilogue_npc_reg(e, inst_count + 1, pc, W3);
+                terminated = true;
+            }
+            inst_count++;
+            exit_npc = pc + 4;
+            pc += 4;
+            continue;
+        }
 
         // Peephole: cmp/cmpi/cmpli/cmpl immediately followed by bc on the same CR field.
         // emit_cr_from_flags_* uses only CSET/LSL/ORR/LDR/STRB — none touch NZCV — so

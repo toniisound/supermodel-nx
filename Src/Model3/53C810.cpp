@@ -129,10 +129,11 @@ static Result SCRIPTS_MoveMemory(struct NCR53C810Context *Ctx)
   DebugLog("53C810: Move Memory %08X -> %08X, %X\n", src, dest, numBytes);
   //if (dest==0x94000000)printf("53C810: Move Memory %08X -> %08X, %X\n", src, dest, numBytes);
 
+  ppc_code_written(dest, numBytes);   // drop JIT code this copy overwrites
+
   // Perform a 32-bit copy if possible
   for (i = 0; i < (numBytes/4); i++)
   {
-    ppc_code_written(dest);
     Ctx->Bus->Write32(dest, Ctx->Bus->Read32(src));
     dest += 4;
     src += 4;
@@ -142,7 +143,6 @@ static Result SCRIPTS_MoveMemory(struct NCR53C810Context *Ctx)
   numBytes &= 3;
   while (numBytes)
   {
-    ppc_code_written(dest);
     Ctx->Bus->Write8(dest++, Ctx->Bus->Read8(src++));
     --numBytes;
   }

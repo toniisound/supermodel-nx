@@ -593,13 +593,26 @@ static bool s_ppc_jit_enabled = true;
 // already-compiled code that way must be dropped here. Step 1.x games use the
 // 53C810 as a memory-to-memory DMA engine (The Lost World loads its program
 // with it after the boot screens).
-void ppc_code_written(UINT32 addr)
+void ppc_code_written(UINT32 addr, UINT32 len)
 {
 #ifdef HAVE_PPC_JIT
 	if (s_ppc_jit_enabled)
-		JitArm64::get().smc_write(addr);
+		JitArm64::get().dma_write(addr, len);
 #else
-	(void)addr;
+	(void)addr; (void)len;
+#endif
+}
+
+#ifdef HAVE_PPC_JIT
+extern UINT32 g_jit_interpret_groups;   // JitArm64.cpp
+#endif
+
+void ppc_set_jit_interpret(UINT32 groups)
+{
+#ifdef HAVE_PPC_JIT
+	g_jit_interpret_groups = groups;
+#else
+	(void)groups;
 #endif
 }
 

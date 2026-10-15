@@ -644,12 +644,12 @@ void CReal3D::DMACopy(void)
 {
   DebugLog("Real3D DMA copy (PC=%08X, LR=%08X): %08X -> %08X, %X %s\n", ppc_get_pc(), ppc_get_lr(), dmaSrc, dmaDest, dmaLength*4, (dmaConfig&0x80)?"(byte reversed)":"");
   //printf("Real3D DMA copy (PC=%08X, LR=%08X): %08X -> %08X, %X %s\n", ppc_get_pc(), ppc_get_lr(), dmaSrc, dmaDest, dmaLength*4, (dmaConfig&0x80)?"(byte reversed)":"");
+  ppc_code_written(dmaDest, dmaLength * 4);   // drop JIT code this copy overwrites
   if ((dmaConfig&0x80)) // reverse bytes
   {
     while (dmaLength != 0)
     {
       uint32_t data = Bus->Read32(dmaSrc);
-      ppc_code_written(dmaDest);
       Bus->Write32(dmaDest, FLIPENDIAN32(data));
       dmaSrc += 4;
       dmaDest += 4;
@@ -660,7 +660,6 @@ void CReal3D::DMACopy(void)
   {
     while (dmaLength != 0)
     {
-      ppc_code_written(dmaDest);
       Bus->Write32(dmaDest, Bus->Read32(dmaSrc));
       dmaSrc += 4;
       dmaDest += 4;

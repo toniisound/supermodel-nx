@@ -285,12 +285,34 @@ extern "C" void ppc_dispatch_opcode(UINT32 opcode)
 	}
 }
 
+#ifdef HAVE_PPC_JIT
+// Cycles the recompiler ran past the end of earlier slots (a block or chain
+// only checks icount at its end). They are taken off the next slots, so the
+// timebase and decrementer advance by exactly the cycles the board asked for,
+// as with the interpreter. Without this, guest time per frame grew with how
+// far the blocks happened to overshoot: The Lost World times its frames with
+// the decrementer, calibrated against the timebase during its boot (a long
+// overshoot), then rearmed it every frame before it could expire once the
+// overshoot shrank on the next screen, and waited forever on a black screen.
+static int s_jit_overrun = 0;
+#endif
+
 int ppc_execute(int cycles)
 {
 	UINT32 opcode;
 #ifdef __SWITCH__
 	const uint64_t profileStart = SwitchProfile::NowNs();
 	SwitchProfile::TraceSlice(ppc.npc, MSR);
+	const int requested = cycles;
+#endif
+
+#ifdef HAVE_PPC_JIT
+	if (s_jit_overrun > 0 && cycles > 1)
+	{
+		const int carry = s_jit_overrun < cycles - 1 ? s_jit_overrun : cycles - 1;
+		cycles -= carry;
+		s_jit_overrun -= carry;
+	}
 #endif
 
 	ppc.cur_cycles = cycles;
@@ -483,6 +505,10 @@ jit_done:
 	*/
 
 	int executed = cycles - ppc.icount;
+#ifdef HAVE_PPC_JIT
+	if (ppc.icount < 0)
+		s_jit_overrun += -ppc.icount;
+#endif
 	ppc.total_cycles += executed;
 	ppc.cur_cycles = 0;
 	ppc.icount = 0;
@@ -491,7 +517,7 @@ jit_done:
 #ifdef __SWITCH__
 	SwitchProfile::ppcExecNs += SwitchProfile::NowNs() - profileStart;
 	SwitchProfile::ppcExecCalls++;
-	SwitchProfile::ppcCycles += cycles;
+	SwitchProfile::ppcCycles += requested;
 #endif
 	return executed;
 }

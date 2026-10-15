@@ -379,6 +379,7 @@ namespace SwitchProfile
 
       // Who writes the words the waiting code reads? Scan the code in RAM
       // for stores to each address made with "lis rX,hi ... st* rY,lo(rX)".
+      std::vector<uint32_t> storePcs;
       for (uint32_t ea : watched)
       {
         InfoLog("  [%08X] = %08X now; stores to it found in RAM code:", ea, ppc_read_opcode_at(ea & ~3u));
@@ -405,6 +406,8 @@ namespace SwitchProfile
           if (!match || primary == 32 || primary == 34)
             continue;
           hits++;
+          if (a + 0x40 < pcs[0].pc || a > pcs[0].pc + 0x40)
+            storePcs.push_back(a);
           InfoLog("    store at %08X:", a);
           for (uint32_t c = a - 0x30; c <= a + 0x0C; c += 4)
           {
@@ -416,6 +419,67 @@ namespace SwitchProfile
         }
         if (!hits)
           InfoLog("    none (written through a pointer?)");
+      }
+
+      // How does the code reach those stores? Print the function holding
+      // each one, then who calls it (bl or a pointer in RAM), two levels up.
+      {
+        auto funcStart = [](uint32_t a) -> uint32_t {
+          for (uint32_t b = a; b + 0x1000 > a && b >= 0x100; b -= 4)
+            if ((ppc_read_opcode_at(b) & 0xFFFF0000) == 0x94210000)   // stwu r1,-n(r1)
+              return b;
+          return a;
+        };
+        auto printCode = [](uint32_t from, uint32_t to, uint32_t mark) {
+          for (uint32_t c = from; c <= to; c += 4)
+          {
+            const uint32_t op = ppc_read_opcode_at(c);
+            char mnem[64] = "?", oprs[128] = "";
+            DisassemblePowerPC(op, c, mnem, oprs, true);
+            InfoLog("    %c %08X: %08X  %-8s %s", c == mark ? '>' : ' ', c, op, mnem, oprs);
+          }
+        };
+        auto printFunc = [&](uint32_t start, uint32_t mark) {
+          uint32_t end = start;
+          for (int n = 0; n < 160; n++, end += 4)
+            if (ppc_read_opcode_at(end) == 0x4E800020 && end >= mark) break;   // blr
+          printCode(start, end, mark);
+        };
+        auto callers = [](uint32_t f, std::vector<uint32_t> &out) {
+          for (uint32_t a = 0x100; a < 0x00400000 && out.size() < 4; a += 4)
+          {
+            const uint32_t op = ppc_read_opcode_at(a);
+            if ((op >> 26) == 18 && (op & 3) == 1)                  // bl
+            {
+              int32_t d = (int32_t)(op & 0x03FFFFFC);
+              if (d & 0x02000000) d -= 0x04000000;
+              if (a + d == f) out.push_back(a);
+            }
+            else if (op == f)
+              out.push_back(a | 1);                                 // a pointer to f
+          }
+        };
+        std::vector<uint32_t> done;
+        std::vector<std::pair<uint32_t, uint32_t>> todo;   // (code address, depth)
+        for (uint32_t s : storePcs) todo.push_back({ s, 0 });
+        for (size_t i = 0; i < todo.size() && i < 12; i++)
+        {
+          const uint32_t at = todo[i].first, depth = todo[i].second;
+          const uint32_t f = funcStart(at);
+          if (std::find(done.begin(), done.end(), f) != done.end()) continue;
+          done.push_back(f);
+          InfoLog("  function %08X (holds %08X, level %u):", f, at, depth);
+          printFunc(f, at);
+          std::vector<uint32_t> cs;
+          callers(f, cs);
+          if (cs.empty()) InfoLog("    called from: nowhere found (computed call?)");
+          for (uint32_t c : cs)
+          {
+            if (c & 1) { InfoLog("    pointer to it at %08X", c & ~1u); continue; }
+            InfoLog("    called from %08X", c);
+            if (depth < 2) todo.push_back({ c, depth + 1 });
+          }
+        }
       }
     }
 

@@ -399,6 +399,7 @@ static UINT32 JitInterpretGroup(uint32_t op)
 }
 static int OFF_TIMER_RATIO;
 static int OFF_INT_PENDING;
+static int OFF_IRQ_IN_BLOCK;
 static int OFF_SR;
 static int OFF_DSISR;
 static int OFF_DAR;
@@ -431,6 +432,7 @@ static void compute_offsets()
     OFF_DEC_BASE    = OFF(dec_base_icount);
     OFF_TIMER_RATIO = OFF(timer_ratio);
     OFF_INT_PENDING = OFF(interrupt_pending);
+    OFF_IRQ_IN_BLOCK = OFF(irq_in_block);
     OFF_SR          = OFF(sr[0]);
     OFF_DSISR       = OFF(dsisr);
     OFF_DAR         = OFF(dar);
@@ -989,6 +991,39 @@ static void emit_epilogue_chained(Arm64Emitter &e, int inst_count, uint32_t last
     e.STP_W(W0, W1, PPC_PTR, OFF_PC);
     e.LDP_post(PPC_PTR, 30, A64_SP, 16);
     e.RET();
+}
+
+// A store (or an interpreted instruction) can start a device that raises an
+// interrupt at once: 53C810 SCRIPTS, Real3D DMA. The interpreter takes it
+// before the next instruction; a JIT block would run on to its end first,
+// and code that reads (and clears) the device status right after the store
+// then leaves the interrupt handler nothing to see (The Lost World locks up
+// on a black screen after its boot text). So after each such instruction:
+// if ppc_set_irq_line() flagged an IRQ during the block, end the block here.
+static void emit_irq_exit_check(Arm64Emitter &e, int inst_count, uint32_t pc)
+{
+    e.LDR_W(W2, PPC_PTR, (uint32_t)OFF_IRQ_IN_BLOCK);
+    uint32_t *skip = e.emit_CBZ_W_placeholder(W2);
+    emit_epilogue(e, inst_count, pc, pc + 4);
+    e.patch_CBZ(skip, e.ptr());
+}
+
+static bool is_store_op(uint32_t op)
+{
+    switch (op >> 26) {
+    case 36: case 37: case 38: case 39: case 44: case 45: case 47:
+    case 52: case 53: case 54: case 55:
+        return true;
+    case 31:
+        switch ((op >> 1) & 0x3FF) {
+        case 150: case 151: case 183: case 215: case 247: case 407: case 439:
+        case 662: case 918: case 663: case 695: case 727: case 759: case 983:
+        case 661: case 725: case 1014:
+            return true;
+        }
+        return false;
+    }
+    return false;
 }
 
 // Deferred-chaining epilogue: same icount check as emit_epilogue_chained,
@@ -3253,6 +3288,8 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
                 emit_epilogue_npc_reg(e, inst_count + 1, pc, W3);
                 terminated = true;
             }
+            if (!terminated)
+                emit_irq_exit_check(e, inst_count + 1, pc);
             inst_count++;
             exit_npc = pc + 4;
             pc += 4;
@@ -3610,6 +3647,9 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
             break;
         }  // if (!handled) switch
 
+        if (handled && !terminated && is_store_op(op))
+            emit_irq_exit_check(e, inst_count + 1, pc);
+
         // Post-switch peephole: rc=1 op writing CR0, immediately followed by a bc
         // Peephole: fuse an Rc=1 instruction that leaves NZCV valid with a following bc
         // on CR0.  NZCV survive all CR-store helpers (CSET/ADD/SUB/LDR/ORR_LSR/STRB set
@@ -3693,6 +3733,8 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
                     terminated = true;
                 }
             }
+            if (!terminated)
+                emit_irq_exit_check(e, inst_count + 1, pc);
         }
 
         inst_count++;

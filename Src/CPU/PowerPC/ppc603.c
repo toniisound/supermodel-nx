@@ -348,6 +348,7 @@ int ppc_execute(int cycles)
 #ifdef __SWITCH__
 				SwitchProfile::CountBlockEntry(ppc.npc);
 #endif
+				ppc.irq_in_block = 0;
 				s_jit_executing = true;
 				blk->fn(&ppc);	// runs block (or chain); updates ppc.pc, ppc.npc, ppc.icount
 				s_jit_executing = false;

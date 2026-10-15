@@ -91,6 +91,7 @@ typedef struct {
 
     int     interrupt_pending;
     int     external_int;
+    int     irq_in_block;   // JIT: an IRQ was raised while a block ran (end it after the store)
 
     UINT64  tb;             // 56-bit timebase
 

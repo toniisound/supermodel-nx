@@ -834,6 +834,8 @@ void ppc_set_irq_line(int irqline)
 		// the chained epilogue's CBNZ exits the chain and jit_done delivers the interrupt safely.
 		if (!s_jit_executing)
 			ppc603_check_interrupts();
+		else
+			ppc.irq_in_block = 1;	// the block ends after the current store (see JitArm64)
 	}
 	else
 	{

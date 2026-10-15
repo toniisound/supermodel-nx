@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cstring>
 #include <vector>
+#include <string>
 
 namespace SwitchProfile
 {
@@ -88,7 +89,7 @@ namespace SwitchProfile
 
     // History ring: kind 0 = block entry, 1 + type = exception
     struct Trace { uint32_t pc, msr; int kind; };
-    constexpr unsigned kTraceSize = 64;
+    constexpr unsigned kTraceSize = 4096;
     Trace s_trace[kTraceSize];
     unsigned s_traceHead = 0;
     uint32_t s_excCount[32];
@@ -145,6 +146,12 @@ namespace SwitchProfile
   {
     Trace &t = s_trace[s_traceHead++ & (kTraceSize - 1)];
     t.pc = pc; t.msr = msr; t.kind = 0;
+  }
+
+  void TraceSlice(uint32_t pc, uint32_t msr)
+  {
+    Trace &t = s_trace[s_traceHead++ & (kTraceSize - 1)];
+    t.pc = pc; t.msr = msr; t.kind = 99;
   }
 
   void TraceException(int type, uint32_t srr0, uint32_t msr)
@@ -273,23 +280,51 @@ namespace SwitchProfile
         for (int t = 0; t < 32; t++)
           if (s_excCount[t]) el += snprintf(exl + el, sizeof(exl) - el, " %d x%.1f", t, s_excCount[t] / f);
         InfoLog("%s", exl);
-        // History, oldest first, repeats folded
-        InfoLog("  recent history (block entries pc/msr, exceptions EXC type at srr0):");
+        // History, oldest first: SLICE = start of a ppc_execute() call, then
+        // the JIT block entries (pc, msr) and exceptions (type at srr0).
+        // Repeating runs of up to 6 entries are folded into one line "xN".
         const unsigned head = s_traceHead;
-        unsigned i = head >= kTraceSize ? head - kTraceSize : 0;
-        while (i < head)
+        const unsigned count = head < kTraceSize ? head : kTraceSize;
+        std::vector<Trace> h(count);
+        for (unsigned k = 0; k < count; k++)
+          h[k] = s_trace[(head - count + k) & (kTraceSize - 1)];
+        auto same = [](const Trace &a, const Trace &b) { return a.pc == b.pc && a.kind == b.kind && a.msr == b.msr; };
+        std::vector<std::string> lines;
+        for (size_t i = 0; i < h.size(); )
         {
-          const Trace t = s_trace[i & (kTraceSize - 1)];
-          unsigned n = 1;
-          while (i + n < head && s_trace[(i + n) & (kTraceSize - 1)].pc == t.pc &&
-                 s_trace[(i + n) & (kTraceSize - 1)].kind == t.kind && s_trace[(i + n) & (kTraceSize - 1)].msr == t.msr)
-            n++;
-          if (t.kind == 0)
-            InfoLog("    %08X msr=%08X%s", t.pc, t.msr, n > 1 ? " (repeated)" : "");
-          else
-            InfoLog("    EXC %d at %08X msr=%08X%s", t.kind - 1, t.pc, t.msr, n > 1 ? " (repeated)" : "");
-          i += n;
+          size_t bestP = 1, bestK = 1;
+          for (size_t p = 1; p <= 6 && i + p <= h.size(); p++)
+          {
+            size_t k = 1;
+            while (i + (k + 1) * p <= h.size())
+            {
+              bool eq = true;
+              for (size_t j = 0; j < p && eq; j++)
+                eq = same(h[i + j], h[i + k * p + j]);
+              if (!eq) break;
+              k++;
+            }
+            if (k > 1 && k * p > bestK * bestP) { bestP = p; bestK = k; }
+          }
+          std::string s;
+          char b[96];
+          for (size_t j = 0; j < bestP; j++)
+          {
+            const Trace &t = h[i + j];
+            if (t.kind == 0)       snprintf(b, sizeof(b), "%s%08X", j ? " " : "", t.pc);
+            else if (t.kind == 99) snprintf(b, sizeof(b), "%sSLICE@%08X", j ? " " : "", t.pc);
+            else                   snprintf(b, sizeof(b), "%sEXC%d@%08X", j ? " " : "", t.kind - 1, t.pc);
+            s += b;
+          }
+          snprintf(b, sizeof(b), "  msr=%08X", h[i].msr);
+          s += b;
+          if (bestK > 1) { snprintf(b, sizeof(b), "  x%zu", bestK); s += b; }
+          lines.push_back(s);
+          i += bestP * bestK;
         }
+        InfoLog("  recent history (%u events, oldest first):", count);
+        for (size_t i = lines.size() > 150 ? lines.size() - 150 : 0; i < lines.size(); i++)
+          InfoLog("    %s", lines[i].c_str());
       }
       if (pcs.size() > 1 && pcs[1].pc < 0x00800000)
       {

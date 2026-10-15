@@ -290,6 +290,7 @@ int ppc_execute(int cycles)
 	UINT32 opcode;
 #ifdef __SWITCH__
 	const uint64_t profileStart = SwitchProfile::NowNs();
+	SwitchProfile::TraceSlice(ppc.npc, MSR);
 #endif
 
 	ppc.cur_cycles = cycles;

@@ -94,6 +94,7 @@ namespace SwitchProfile
   // MSR) and exceptions taken (type, SRR0), in one ring.
   void TraceEntry(uint32_t pc, uint32_t msr);
   void TraceException(int type, uint32_t srr0, uint32_t msr);
+  void TraceSlice(uint32_t pc, uint32_t msr);
 
   void Report();
 }

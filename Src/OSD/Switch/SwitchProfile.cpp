@@ -33,6 +33,7 @@ namespace SwitchProfile
   uint64_t ppcExecCalls = 0;
   uint64_t ppcCycles = 0;
   uint64_t frames = 0;
+  bool logCpuWait = false;
   uint64_t renderTexNs = 0;
   uint64_t render2DNs = 0;
   uint64_t render3DNs = 0;
@@ -286,7 +287,7 @@ namespace SwitchProfile
     // code there, the registers and the RAM words its loads read, once per
     // new place: enough to see what it waits for.
     static uint32_t s_dumpedPc = 0;
-    if (!pcs.empty() && pcs[0].pc < 0x00800000 && pcs[0].pc != s_dumpedPc &&
+    if (logCpuWait && !pcs.empty() && pcs[0].pc < 0x00800000 && pcs[0].pc != s_dumpedPc &&
         pcs[0].count / f >= 300.0 && s_entries < 4000ull * frames)
     {
       s_dumpedPc = pcs[0].pc;

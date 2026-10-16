@@ -2838,6 +2838,9 @@ int main(int argc, char **argv)
   InfoLog("Recompiler floating point: %s", s_runtime_config["JitNativeFP"].ValueAsDefault<bool>(true) ? "native" : "interpreter");
   ppc_set_jit_inline_dec(s_runtime_config["JitInlineDEC"].ValueAsDefault<bool>(true));
   ppc_set_jit_chain_indirect(s_runtime_config["JitChainIndirect"].ValueAsDefault<bool>(true));
+#ifdef __SWITCH__
+  SwitchProfile::logCpuWait = s_runtime_config["LogCpuWait"].ValueAsDefault<bool>(false);
+#endif
   if (!s_runtime_config["JitChainIndirect"].ValueAsDefault<bool>(true))
     InfoLog("Recompiler: blr/bctr return to the dispatcher (JitChainIndirect = 0)");
   {

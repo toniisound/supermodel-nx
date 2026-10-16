@@ -42,6 +42,7 @@ namespace SwitchProfile
   extern uint64_t ppcExecCalls;
   extern uint64_t ppcCycles;      // guest cycles requested
   extern uint64_t frames;
+  extern bool logCpuWait;         // "CPU waiting" dump with a RAM code scan (config LogCpuWait, off: it stalls a frame)
 
   // Render thread (CModel3::RenderFrame and the buffer swap)
   extern uint64_t renderTexNs;    // queued 3D texture uploads (Real3D BeginFrame)

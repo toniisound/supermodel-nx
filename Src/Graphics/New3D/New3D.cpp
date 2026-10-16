@@ -1469,7 +1469,7 @@ void CNew3D::DescendCullingNode(UINT32 addr)
 					nodeAlpha = 0.0f;
 				m_nodeAttribs.currentModelAlpha *= nodeAlpha;	// alpha of each node multiples by the alpha of its parent
 				
-				if (!(child1Ptr & 0x01000000)) {
+				if ((node[0x03 - m_offset] & 0x20000000)) {
 					DescendCullingNode(lodPtr[modelLOD] & 0xFFFFFF);
 
 					if (nodeAlpha < 1.0f && modelLOD != 3)
@@ -1540,9 +1540,13 @@ void CNew3D::DescendPointerList(UINT32 addr)
 
 	while (true) {
 
-		if (!(list[index] & 0x01000000)) {
-			DescendCullingNode(list[index] & 0x00FFFFFF);
+		if (list[index] & 0x01000000) {
+			break;	// empty list
 		}
+
+		UINT32 nodeAddr = list[index] & 0x00FFFFFF;	// clear upper 8 bits to ensure this is processed as a culling node
+
+		DescendCullingNode(nodeAddr);
 
 		if (list[index] & 0x02000000) {
 			break;	// list end
@@ -1868,10 +1872,14 @@ void CNew3D::RenderViewport(UINT32 addr)
 		// Set up coordinate system and base matrix
 		InitMatrixStack(matrixBase, vpnode[0x15] & 0xFFF, m_modelMat);
 
-		// Descend down the node link
+		// Descend down the node link. Need to start with a culling node because that defines our culling radius.
+		// (Official Supermodel now descends any node here, for the PRO-1000 demos; Model 3 games then
+		// render garbage, e.g. Daytona 2 Power Edition: 10000 draws and 1M vertices per frame.)
 		if (!vpDisabled) {
-			UINT32 child = vpnode[0x02];
-			DescendNodePtr(child);
+			auto childptr = vpnode[0x02];
+			if (((childptr >> 24) & 0x5) == 0) {
+				DescendNodePtr(vpnode[0x02]);
+			}
 		}
 	}
 	

@@ -95,12 +95,6 @@ namespace SwitchProfile
     unsigned s_traceHead = 0;
     uint32_t s_excCount[32];
 
-    struct DecWrite { uint32_t pc, value, old; bool armed; };
-    constexpr unsigned kDecRing = 8;
-    DecWrite s_decRing[kDecRing];
-    unsigned s_decHead = 0;
-    uint64_t s_decWrites = 0;
-
     int GroupIndex(uint32_t primary)
     {
       switch (primary) { case 19: return 0; case 31: return 1; case 59: return 2; case 63: return 3; }
@@ -149,29 +143,27 @@ namespace SwitchProfile
     s_ioLast[slot] = value;
   }
 
+  // The history ring only feeds the "CPU waiting" dump (LogCpuWait = 1)
   void TraceEntry(uint32_t pc, uint32_t msr)
   {
+    if (!logCpuWait) return;
     Trace &t = s_trace[s_traceHead++ & (kTraceSize - 1)];
     t.pc = pc; t.msr = msr; t.kind = 0;
   }
 
   void TraceSlice(uint32_t pc, uint32_t msr)
   {
+    if (!logCpuWait) return;
     Trace &t = s_trace[s_traceHead++ & (kTraceSize - 1)];
     t.pc = pc; t.msr = msr; t.kind = 99;
   }
 
   void TraceException(int type, uint32_t srr0, uint32_t msr)
   {
+    s_excCount[type & 31]++;
+    if (!logCpuWait) return;
     Trace &t = s_trace[s_traceHead++ & (kTraceSize - 1)];
     t.pc = srr0; t.msr = msr; t.kind = 1 + type;
-    s_excCount[type & 31]++;
-  }
-
-  void CountDecWrite(uint32_t pc, uint32_t value, uint32_t old, bool armed)
-  {
-    s_decWrites++;
-    s_decRing[s_decHead++ & (kDecRing - 1)] = { pc, value, old, armed };
   }
 
   void CountIrq(unsigned bits, unsigned enable)
@@ -524,18 +516,6 @@ namespace SwitchProfile
         if (s_excCount[t]) { len += snprintf(line + len, sizeof(line) - len, " %d x%.1f", t, s_excCount[t] / f); any = true; }
       if (!any) len += snprintf(line + len, sizeof(line) - len, " none");
       InfoLog("%s", line);
-      UINT32 dec = 0; int pending = 0, trigger = 0, ratio = 0;
-      ppc_debug_dec_state(&dec, &pending, &trigger, &ratio);
-      len = snprintf(line, sizeof(line), "Decrementer: DEC=%08X pending=%X trigger=%d ratio=%d, writes per frame %.1f; last:",
-                     dec, pending, trigger, ratio, s_decWrites / f);
-      const unsigned n = s_decHead < kDecRing ? s_decHead : kDecRing;
-      for (unsigned k = 0; k < n; k++)
-      {
-        const DecWrite &w = s_decRing[(s_decHead - n + k) & (kDecRing - 1)];
-        len += snprintf(line + len, sizeof(line) - len, " %08X:%08X(was %08X%s)", w.pc, w.value, w.old, w.armed ? ",due" : "");
-      }
-      InfoLog("%s", line);
-      s_decWrites = 0;
     }
 
     len = snprintf(line, sizeof(line), "IRQs raised (enable mask %02X):", s_irqEnable & 0xFF);

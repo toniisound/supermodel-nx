@@ -375,9 +375,6 @@ static inline UINT32 read_decrementer(void)
 
 static inline void write_decrementer(UINT32 value)
 {
-#ifdef __SWITCH__
-	const UINT32 decOld = read_decrementer();
-#endif
 	if (((value&0x80000000) && !(read_decrementer()&0x80000000)))
 	{
 		/* trigger interrupt */
@@ -395,9 +392,6 @@ static inline void write_decrementer(UINT32 value)
 		ppc.dec_trigger_cycle = ppc.dec_base_icount - ((1 + DEC) * ppc.timer_ratio);
 	else
 		ppc.dec_trigger_cycle = 0x7fffffff;
-#ifdef __SWITCH__
-	SwitchProfile::CountDecWrite(ppc.pc, value, decOld, ppc.dec_trigger_cycle != 0x7fffffff);
-#endif
 }
 
 /*********************************************************************/
@@ -1200,14 +1194,6 @@ void ppc_debug_jit_stats(UINT64 *compiled, UINT64 *flushes)
 #else
 	*compiled = *flushes = 0;
 #endif
-}
-
-void ppc_debug_dec_state(UINT32 *dec, int *pending, int *trigger, int *ratio)
-{
-	*dec = DEC;
-	*pending = ppc.interrupt_pending;
-	*trigger = ppc.dec_trigger_cycle;
-	*ratio = ppc.timer_ratio;
 }
 
 UINT32 ppc_read_msr()

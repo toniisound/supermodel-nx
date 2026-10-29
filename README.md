@@ -93,15 +93,16 @@ etc.) in NVRAM. SuperModel NX does not include any NVRAM data: provide your own.
 - **Or set the game up once**: without an NVRAM file, a game may stop at its cabinet
   setup screen or wait for other linked cabinets. Open the game's test menu (Test button:
   right stick click), set it to a single cabinet with no link, leave the test menu and
-  exit with − and +. The NVRAM is saved to `NVRAM/` and loaded every time after that.
+  leave the game with − and + then **Exit**. The NVRAM is saved to `NVRAM/` and loaded
+  every time after that.
 
 To start a game's setup again from scratch, delete its `.nv` file from `NVRAM/`.
 
 **The Lost World**: the game stops on a black screen when the gun calibration in its NVRAM
 is missing. When `lostwsga.nv` exists, SuperModel NX sets the gun calibration in it before
 loading it (only those values change; the original is kept as `lostwsga.nv.bak`). Without
-an NVRAM file, start the game once and exit with − and + so it saves one, then start it
-again.
+an NVRAM file, start the game once and leave it (− and +, **Exit**) so it saves one, then
+start it again.
 
 ### Covers
 
@@ -136,7 +137,7 @@ It is not read from the SD card. Without it the header shows "SuperModel NX".
 | R / L | Shift up / down |
 | A B X Y | Game buttons (VF3: Y guard, B punch, A kick, X escape) |
 | Left / right stick click | Service / Test |
-| − and + | Back to the game list |
+| − and + | Pause menu: Save State, Load State, Exit (back to the game list), Cancel |
 | − + R / − + L | Save / load state |
 | − + D-pad right | Change save state slot |
 | − + D-pad down | Pause |

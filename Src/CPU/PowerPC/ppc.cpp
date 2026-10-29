@@ -1088,6 +1088,18 @@ void ppc_load_state(CBlockFile *SaveState)
 	
 	SaveState->Read(ppc.fpr, sizeof(ppc.fpr));
 	SaveState->Read(ppc.sr, sizeof(ppc.sr));
+
+	// Interrupts pending before the load belong to the old state (the IRQ
+	// controller raises the line again from its loaded state).
+	ppc.interrupt_pending = ppc.fatalError ? 0x8 : 0;
+	ppc.irq_in_block = 0;
+
+#ifdef HAVE_PPC_JIT
+	// RAM was replaced as a whole: the compiled code may no longer match it.
+	s_jit_overrun = 0;
+	if (s_ppc_jit_enabled && JitArm64::get().is_available())
+		JitArm64::get().flush();
+#endif
 }
 
 UINT32 ppc_get_gpr(unsigned num)

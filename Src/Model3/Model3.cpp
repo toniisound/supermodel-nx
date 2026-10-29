@@ -2014,6 +2014,8 @@ void CModel3::LoadState(CBlockFile *SaveState)
   PCIBridge.LoadState(SaveState);
   IRQ.LoadState(SaveState);
   ppc_load_state(SaveState);
+  if (IRQ.ReadIRQState() & IRQ.ReadIRQEnable())
+    ppc_set_irq_line(1);        // pending interrupts of the loaded state
   SoundBoard.LoadState(SaveState);
   DriveBoard->LoadState(SaveState);
   m_cryptoDevice.LoadState(SaveState);

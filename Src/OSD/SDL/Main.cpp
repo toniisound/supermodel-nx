@@ -107,6 +107,7 @@
 #include "OSD/Switch/SwitchGLDebug.h"
 #ifdef __SWITCH__
 #include "OSD/Switch/SwitchProfile.h"
+#include "OSD/Switch/InGameMenu.h"
 #endif
 #ifdef __SWITCH__
 #include "OSD/Switch/SwitchPlatform.h"
@@ -801,15 +802,20 @@ static const int STATE_FILE_VERSION = 6;  // save state file version
 static const int NVRAM_FILE_VERSION = 0;  // NVRAM file version
 static unsigned s_saveSlot = 0;           // save state slot #
 
-static void SaveState(IEmulator *Model3)
+static std::string SaveStatePath(IEmulator *Model3)
+{
+  return Util::Format() << FileSystemPath::GetPath(FileSystemPath::Saves) << Model3->GetGame().name << ".st" << s_saveSlot;
+}
+
+static bool SaveState(IEmulator *Model3)
 {
   CBlockFile  SaveState;
 
-  std::string file_path = Util::Format() << FileSystemPath::GetPath(FileSystemPath::Saves) << Model3->GetGame().name << ".st" << s_saveSlot;
+  std::string file_path = SaveStatePath(Model3);
   if (Result::OKAY != SaveState.Create(file_path, "Supermodel Save State", "Supermodel Version " SUPERMODEL_VERSION))
   {
     ErrorLog("Unable to save state to '%s'.", file_path.c_str());
-    return;
+    return false;
   }
 
   // Write file format version and ROM set ID to header block
@@ -822,27 +828,28 @@ static void SaveState(IEmulator *Model3)
   SaveState.Close();
   printf("Saved state to '%s'.\n", file_path.c_str());
   InfoLog("Saved state to '%s'.", file_path.c_str());
+  return true;
 }
 
-static void LoadState(IEmulator *Model3, std::string file_path = std::string())
+static bool LoadState(IEmulator *Model3, std::string file_path = std::string())
 {
   CBlockFile  SaveState;
 
   // Generate file path
   if (file_path.empty())
-    file_path = Util::Format() << FileSystemPath::GetPath(FileSystemPath::Saves) << Model3->GetGame().name << ".st" << s_saveSlot;
+    file_path = SaveStatePath(Model3);
 
   // Open and check to make sure format is correct
   if (Result::OKAY != SaveState.Load(file_path))
   {
     ErrorLog("Unable to load state from '%s'.", file_path.c_str());
-    return;
+    return false;
   }
 
   if (Result::OKAY != SaveState.FindBlock("Supermodel Save State"))
   {
     ErrorLog("'%s' does not appear to be a valid save state file.", file_path.c_str());
-    return;
+    return false;
   }
 
   int32_t fileVersion;
@@ -850,7 +857,7 @@ static void LoadState(IEmulator *Model3, std::string file_path = std::string())
   if (fileVersion != STATE_FILE_VERSION)
   {
     ErrorLog("'%s' is incompatible with this version of Supermodel.", file_path.c_str());
-    return;
+    return false;
   }
 
   // Load
@@ -858,6 +865,7 @@ static void LoadState(IEmulator *Model3, std::string file_path = std::string())
   SaveState.Close();
   printf("Loaded state from '%s'.\n", file_path.c_str());
   InfoLog("Loaded state from '%s'.", file_path.c_str());
+  return true;
 }
 
 static void SaveNVRAM(IEmulator *Model3)
@@ -1143,6 +1151,8 @@ void EndFrameVideo()
     DrawFpsOverlay();
     SWITCH_GL_CHECK("FPS counter");
   }
+  InGameMenu::Draw(int(totalXRes), int(totalYRes));    // pause menu (- and +) and its messages
+  SWITCH_GL_CHECK("in-game menu");
 #endif
 
   // Swap the buffers
@@ -1210,7 +1220,8 @@ static void SuperSleepUntil(const uint64_t target)
 ******************************************************************************/
 
 #ifdef __SWITCH__
-static bool s_exitToGameList = false;   // set by the exit combo (- and +)
+static bool s_exitToGameList = false;   // set by Exit in the pause menu (- and +)
+static bool s_pausedBeforeMenu = false; // paused state to go back to when the menu closes
 #endif
 
 #ifdef SUPERMODEL_DEBUGGER
@@ -1383,6 +1394,59 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
     // Check UI controls
 #ifdef __SWITCH__
     const bool switchExitCombo = SwitchExitComboPressed();
+    bool menuHandled = false;
+    if (InGameMenu::IsOpen())
+    {
+      // Pause menu: the emulation is paused while it is open
+      menuHandled = true;
+      const InGameMenu::Action action = InGameMenu::Update();
+      if (action != InGameMenu::Action::None)
+      {
+        if (action == InGameMenu::Action::SaveState)
+          InGameMenu::ShowMessage(SaveState(Model3) ? "State saved" : "Could not save the state");
+        else if (action == InGameMenu::Action::LoadState)
+          InGameMenu::ShowMessage(LoadState(Model3) ? "State loaded" : "Could not load the state");
+
+        if (action == InGameMenu::Action::Exit)
+        {
+          quit = true;
+          s_exitToGameList = true;    // back to the game list instead of the Homebrew Menu
+          InfoLog("Pause menu: leaving the game.");
+        }
+        else
+        {
+          paused = s_pausedBeforeMenu;
+          if (!paused)
+          {
+            Model3->ResumeThreads();
+            SetAudioEnabled(true);
+          }
+        }
+      }
+    }
+    else if (Inputs->uiExit->Pressed() || switchExitCombo)
+    {
+      // - and + open the pause menu (Save State, Load State, Exit, Cancel)
+      menuHandled = true;
+      s_pausedBeforeMenu = paused;
+      if (!paused)
+      {
+        Model3->PauseThreads();
+        SetAudioEnabled(false);
+      }
+      paused = true;
+      bool hasState = false;
+      if (FILE *f = fopen(SaveStatePath(Model3).c_str(), "rb"))
+      {
+        hasState = true;
+        fclose(f);
+      }
+      InGameMenu::Open(hasState, int(s_saveSlot));
+    }
+    if (menuHandled)
+    {
+    }
+    else
 #else
     const bool switchExitCombo = false;
 #endif
@@ -1692,6 +1756,9 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
   // Make sure all threads are paused before shutting down
   InfoLog("Stopping emulation...");
   Model3->PauseThreads();
+#ifdef __SWITCH__
+  InGameMenu::Shutdown();
+#endif
 
 #ifdef SUPERMODEL_DEBUGGER
   // If debugger was supplied, detach it from system and restore old logger

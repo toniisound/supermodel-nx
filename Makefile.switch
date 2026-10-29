@@ -137,7 +137,8 @@ SOURCES_CXX := \
 	Src/OSD/Switch/FileSystemPath.cpp \
 	Src/OSD/Switch/SwitchPlatform.cpp \
 	Src/OSD/Switch/SwitchGL.cpp \
-	Src/OSD/Switch/SwitchProfile.cpp
+	Src/OSD/Switch/SwitchProfile.cpp \
+	Src/OSD/Switch/InGameMenu.cpp
 
 ifneq ($(strip $(NO_JIT)),1)
 SOURCES_CXX += Src/CPU/PowerPC/Jit/JitArm64.cpp

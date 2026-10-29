@@ -89,15 +89,15 @@ in VS_OUT
 out GS_OUT
 {
 	noperspective vec2 v[4];
-	noperspective float area[4];
-	flat float oneOverW[4];
+	noperspective vec4 area;		// vec4s rather than float[4], each array element takes a whole input slot
+	flat vec4 oneOverW;
 
 	//our regular attributes
 	flat vec3	viewVertex[4];
 	flat vec3	viewNormal[4];		// per vertex normal vector
 	flat vec2	texCoord[4];
 	flat vec4	color;
-	flat float	fixedShade[4];
+	flat vec4	fixedShade;
 	flat float	LODBase;
 	vec3 barycentricCoords;
 } gs_out;
@@ -237,15 +237,15 @@ uniform mat4	projMat;
 in GS_OUT
 {
 	noperspective vec2 v[4];
-	noperspective float area[4];
-	flat float oneOverW[4];
+	noperspective vec4 area;		// vec4s rather than float[4], each array element takes a whole input slot
+	flat vec4 oneOverW;
 
 	//our regular attributes
 	flat vec3	viewVertex[4];
 	flat vec3	viewNormal[4];		// per vertex normal vector
 	flat vec2	texCoord[4];
 	flat vec4	color;
-	flat float	fixedShade[4];
+	flat vec4	fixedShade;
 	flat float	LODBase;
 	vec3 barycentricCoords;
 } fs_in;
@@ -288,27 +288,22 @@ void QuadraticInterpolation()
 	bool extreme_edge		= (fs_in.barycentricCoords.x <= hpFMin || fs_in.barycentricCoords.z <= hpFMin); 
 
 	// As the coordinates get closer to the poly edge the interpolated areas can approach zero which can blow up the maths leading to bad interpolation.
-	// In this case we fall back to 3 point triangle interpolation (really 2 because 1 coord will be zero).
+	// On the edge the quad interpolation is linear along that edge, which is what the gpu's triangle interpolation gives there too,
+	// so in that case (and for triangles) we use the attributes the gpu interpolated, exactly as the triangle shader does.
 	// This code will only get triggered in rarer corner cases
 
-	float u[4];
 	if(extreme_edge)
 	{
-		for (int i=0; i<4; i++) {
-			int b = (i == 3) ? 1  // 2nd triangle
-			                 : i; // 1st triangle
-			float baryCoord	= abs(fs_in.barycentricCoords[b]);
-			u[i] = baryCoord / fs_in.oneOverW[i];
-			if((i == 1 && !(fs_in.barycentricCoords.y>0.0)) // ignore u[1] if 2nd triangle
-			 ||(i == 3 &&  (fs_in.barycentricCoords.y>0.0)) // ignore u[3] if 1st triangle
-			 ||(baryCoord <= hpFMin))
-			{
-				u[i] = 0.0;
-			}
-		}
+		fsViewVertex		= fs_in.triViewVertex;
+		fsViewNormal		= fs_in.triViewNormal;
+		fsTexCoord			= fs_in.triTexCoord;
+		fsFixedShade		= fs_in.triFixedShade;
+		interp_oneOverW		= gl_FragCoord.w;
+		uSum				= 1.0;
 	}
 	else
 	{
+		float u[4];
 		for (int i=0; i<4; i++)
 			u[i] = length(fs_in.v[i]) * sign(fs_in.oneOverW[i]); // is w[i] negative?
 
@@ -337,26 +332,14 @@ void QuadraticInterpolation()
 			interp_oneOverW	= fma(fs_in.oneOverW[i], u[i], interp_oneOverW);
 			uSum           += u[i];
 		}
-	}
 
-	// shared computations
-	for (int i=0; i<4; i++) {
-		fsViewVertex	= fma(fs_in.viewVertex[i], vec3(u[i]), fsViewVertex);
-		fsViewNormal	= fma(fs_in.viewNormal[i], vec3(u[i]), fsViewNormal);
-		fsTexCoord		= fma(fs_in.texCoord[i], vec2(u[i]), fsTexCoord);
-		fsFixedShade	= fma(fs_in.fixedShade[i], u[i], fsFixedShade);
-	}
+		for (int i=0; i<4; i++) {
+			fsViewVertex	= fma(fs_in.viewVertex[i], vec3(u[i]), fsViewVertex);
+			fsViewNormal	= fma(fs_in.viewNormal[i], vec3(u[i]), fsViewNormal);
+			fsTexCoord		= fma(fs_in.texCoord[i], vec2(u[i]), fsTexCoord);
+			fsFixedShade	= fma(fs_in.fixedShade[i], u[i], fsFixedShade);
+		}
 
-	// finalize the 2 cases
-	if(extreme_edge)
-	{
-		float w = (projMat * vec4(fsViewVertex,1.0)).w;
-
-		interp_oneOverW = 1.0 / w;
-		uSum = 1.0;
-	}
-	else
-	{
 		float inv = 1.0/interp_oneOverW;
 		fsViewVertex *= inv;
 		fsViewNormal *= inv;

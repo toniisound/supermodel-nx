@@ -2255,6 +2255,8 @@ static void Help(void)
   puts("  -no-threads             Disable multi-threading entirely");
   puts("  -gpu-multi-threaded     Run graphics rendering in separate thread [Default]");
   puts("  -no-gpu-thread          Run graphics rendering in main thread");
+  puts("  -idle-skip              Skip PowerPC idle loops [Default]");
+  puts("  -no-idle-skip           Execute PowerPC idle loops in full");
   puts("  -load-state=<file>      Load save state after starting");
   puts("");
   puts("Video Options:");
@@ -2384,6 +2386,8 @@ static ParsedCommandLine ParseCommandLine(int argc, char **argv)
     { "-no-threads",          { "MultiThreaded",    false } },
     { "-gpu-multi-threaded",  { "GPUMultiThreaded", true } },
     { "-no-gpu-thread",       { "GPUMultiThreaded", false } },
+    { "-idle-skip",           { "IdleSkip",         true } },
+    { "-no-idle-skip",        { "IdleSkip",         false } },
     { "-window",              { "FullScreen",       false } },
     { "-fullscreen",          { "FullScreen",       true } },
     { "-borderless",          { "BorderlessWindow", true } },

@@ -1138,6 +1138,7 @@ void ppc_attach_debugger(Debugger::CPPCDebug *PPCDebugPtr)
 		ppc_detach_debugger();
 	PPCDebug = PPCDebugPtr;
 	Bus = PPCDebug->AttachBus(Bus);
+	idleRAMSize = 0;	// breakpoints and stepping need every instruction executed
 }
 
 void ppc_detach_debugger()
@@ -1146,6 +1147,7 @@ void ppc_detach_debugger()
 		return;
 	Bus = PPCDebug->DetachBus(); 
 	PPCDebug = NULL;
+	idleRAMSize = idleRAMSizeSaved;
 }
 
 void ppc_break()

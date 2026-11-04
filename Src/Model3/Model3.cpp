@@ -3121,6 +3121,7 @@ Result CModel3::LoadGame(const Game &game, const ROMSet &rom_set)
   // Initialize CPU
   ppc_init(&ppc_config);
   ppc_attach_bus(this);
+  ppc_set_idle_skip(m_config["IdleSkip"].ValueAs<bool>() ? 0x800000 : 0);  // main RAM: nothing else writes it while the PowerPC runs
   ppc_set_ram_ptr(ram);  // JIT inline RAM fast-path
   PPCFetchRegions[0].start = 0;
   PPCFetchRegions[0].end = 0x007FFFFF;

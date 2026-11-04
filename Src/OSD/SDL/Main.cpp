@@ -1923,6 +1923,7 @@ Util::Config::Node DefaultConfig()
   config.Set("PowerPCJit", true, "Core");     // ARM64 recompiler; 0 = interpreter
 #endif
   config.Set("GPUMultiThreaded", true, "Core");
+  config.Set("IdleSkip", true, "Core");
   // 2D and 3D graphics engines
   config.Set("MultiTexture", false, "Legacy3D");
   config.Set<std::string>("VertexShader", "", "Legacy3D", "", "");

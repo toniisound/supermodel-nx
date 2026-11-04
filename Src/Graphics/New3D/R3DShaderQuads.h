@@ -100,6 +100,11 @@ out GS_OUT
 	flat vec4	fixedShade;
 	flat float	LODBase;
 	vec3 barycentricCoords;
+	// Per-vertex attributes interpolated by the GPU for stable edge fallback.
+	vec3 triViewVertex;
+	vec3 triViewNormal;
+	vec2 triTexCoord;
+	float triFixedShade;
 } gs_out;
 
 //a*b - c*d, computed in a stable fashion (Kahan)
@@ -109,6 +114,14 @@ float DifferenceOfProducts(float a, float b, float c, float d)
     precise float err = fma(-c, d, cd);
     precise float dop = fma(a, b, -cd);
     return dop + err;
+}
+
+void SetTriAttribs(int i)
+{
+	gs_out.triViewVertex = gs_in[i].viewVertex;
+	gs_out.triViewNormal = gs_in[i].viewNormal;
+	gs_out.triTexCoord = gs_in[i].texCoord;
+	gs_out.triFixedShade = gs_in[i].fixedShade;
 }
 
 void main(void)
@@ -177,6 +190,7 @@ void main(void)
 		);
 
 		gs_out.barycentricCoords = bary[ii];
+		SetTriAttribs(ii);
 
 		gl_Position = gl_in[ii].gl_Position;
 
@@ -248,6 +262,10 @@ in GS_OUT
 	flat vec4	fixedShade;
 	flat float	LODBase;
 	vec3 barycentricCoords;
+	vec3 triViewVertex;
+	vec3 triViewNormal;
+	vec2 triTexCoord;
+	float triFixedShade;
 } fs_in;
 
 //our calculated vertex attributes from the above

@@ -364,6 +364,7 @@ extern void ppc_set_jit_native_fp(bool enabled);	// JIT translates FP instructio
 
 // These have been added to support the new Supermodel
 extern void ppc_attach_bus(class IBus *BusPtr);		// must be called first!
+extern void ppc_set_idle_skip(UINT32 ramSize);		// skip idle loops polling RAM below ramSize (0 = off)
 extern void ppc_set_ram_ptr(UINT8 *ram_base);			// set RAM base for JIT inline fast-path
 
 // JIT support (exposed for use by JitArm64.cpp)

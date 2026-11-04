@@ -929,6 +929,13 @@ void ppc_attach_bus(IBus *BusPtr)
 	Bus = BusPtr;
 }
 
+void ppc_set_idle_skip(UINT32 ramSize)
+{
+	idleRAMSize = idleRAMSizeSaved = ramSize;
+	idleLoopPC = 0;
+	idleLoopPasses = 0;
+}
+
 void ppc_set_ram_ptr(UINT8 *ram_base)
 {
 	s_jit_ram_base = ram_base;   // survive future ppc_base_init() memsets

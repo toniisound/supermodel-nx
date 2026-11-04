@@ -25,12 +25,14 @@
 
 namespace InGameMenu
 {
-  enum class Action { None, SaveState, LoadState, Exit, Cancel };
+  enum class Action { None, SlotChanged, SaveState, LoadState, Exit, Cancel };
 
   // hasSaveState: a state file exists for this game in the current slot
   // (Load State is enabled); slot: the save state slot shown in the title
   void Open(bool hasSaveState, int slot);
   bool IsOpen();
+  int CurrentSlot();
+  void SetHasSaveState(bool hasSaveState);
 
   // Call once per frame while open. Returns the chosen action once the
   // buttons used to choose it are released (so the game does not see them),

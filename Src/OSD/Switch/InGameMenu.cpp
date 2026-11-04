@@ -109,6 +109,16 @@ namespace InGameMenu
     return s_open;
   }
 
+  int CurrentSlot()
+  {
+    return s_slot;
+  }
+
+  void SetHasSaveState(bool hasSaveState)
+  {
+    s_hasSaveState = hasSaveState;
+  }
+
   Action Update()
   {
     if (!s_open)
@@ -132,6 +142,17 @@ namespace InGameMenu
       s_selected = (s_selected + kItemCount - 1) % kItemCount;
     if (down & (HidNpadButton_Down | HidNpadButton_StickLDown))
       s_selected = (s_selected + 1) % kItemCount;
+
+    if (down & HidNpadButton_L)
+    {
+      s_slot = (s_slot + 9) % 10;
+      return Action::SlotChanged;
+    }
+    if (down & HidNpadButton_R)
+    {
+      s_slot = (s_slot + 1) % 10;
+      return Action::SlotChanged;
+    }
 
     if (down & HidNpadButton_A)
     {
@@ -195,7 +216,7 @@ namespace InGameMenu
           ImGui::EndDisabled();
       }
       ImGui::Separator();
-      ImGui::TextDisabled("A: select   B: back");
+      ImGui::TextDisabled("L/R: slot   A: select   B: back");
       ImGui::End();
     }
 

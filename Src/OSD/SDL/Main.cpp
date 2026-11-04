@@ -807,6 +807,15 @@ static std::string SaveStatePath(IEmulator *Model3)
   return Util::Format() << FileSystemPath::GetPath(FileSystemPath::Saves) << Model3->GetGame().name << ".st" << s_saveSlot;
 }
 
+static bool HasSaveState(IEmulator *Model3)
+{
+  FILE *f = fopen(SaveStatePath(Model3).c_str(), "rb");
+  if (!f)
+    return false;
+  fclose(f);
+  return true;
+}
+
 static bool SaveState(IEmulator *Model3)
 {
   CBlockFile  SaveState;
@@ -1400,7 +1409,12 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
       // Pause menu: the emulation is paused while it is open
       menuHandled = true;
       const InGameMenu::Action action = InGameMenu::Update();
-      if (action != InGameMenu::Action::None)
+      if (action == InGameMenu::Action::SlotChanged)
+      {
+        s_saveSlot = unsigned(InGameMenu::CurrentSlot());
+        InGameMenu::SetHasSaveState(HasSaveState(Model3));
+      }
+      else if (action != InGameMenu::Action::None)
       {
         if (action == InGameMenu::Action::SaveState)
           InGameMenu::ShowMessage(SaveState(Model3) ? "State saved" : "Could not save the state");
@@ -1435,13 +1449,7 @@ int Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *In
         SetAudioEnabled(false);
       }
       paused = true;
-      bool hasState = false;
-      if (FILE *f = fopen(SaveStatePath(Model3).c_str(), "rb"))
-      {
-        hasState = true;
-        fclose(f);
-      }
-      InGameMenu::Open(hasState, int(s_saveSlot));
+      InGameMenu::Open(HasSaveState(Model3), int(s_saveSlot));
     }
     if (menuHandled)
     {

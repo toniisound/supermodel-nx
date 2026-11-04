@@ -144,8 +144,8 @@ It is not read from the SD card. Without it the header shows "SuperModel NX".
 
 ## Performance
 
-- **Resolution** (Video tab): 960x540 draws the 3D scene at 720x540 and is noticeably
-  faster than 1280x720 in demanding games (e.g. Daytona USA 2: ~38 → ~47 FPS in races).
+- **Resolution** (Video tab, default 960x540): draws the 3D scene at 720x540 and is
+  noticeably faster than 1280x720 in demanding games (e.g. Daytona USA 2: ~38 → ~47 FPS in races).
 - **VSync** is off by default, so games that run below 60 FPS don't drop in steps.
 - **PowerPC frequency** (Core tab): Auto runs each game at its board's speed (Step 1.0:
   66 MHz, Step 1.5: 100 MHz, Step 2.x: 166 MHz). For a single game it can be set in its

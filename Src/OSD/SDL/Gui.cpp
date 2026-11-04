@@ -704,7 +704,7 @@ static void DrawResolutionPreset(Util::Config::Node& config)
 }
 
 // "Load Defaults". On the Switch the defaults are the Supermodel.ini bundled
-// in the .nro (Joy-Con controls, sdlgamepad, 1280x720...) over the built-in
+// in the .nro (Joy-Con controls, sdlgamepad, 960x540...) over the built-in
 // ones; the built-in ones alone would leave keyboard controls.
 static void LoadDefaultSettings(Util::Config::Node& config)
 {

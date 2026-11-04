@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <limits>
 #include <cstring>
+#include <utility>
 #include <unordered_map>
 #include "R3DFloat.h"
 #include "Util/BitCast.h"
@@ -1000,9 +1001,13 @@ void CNew3D::RenderFrame(void)
 		}
 	}
 
-	// release any resources from last frame
+	// Release dynamic models but keep each viewport's vector capacity for the next frame.
 	m_polyBufferRam.clear();		// clear dynamic model memory buffer
-	m_nodes.clear();				// memory will grow during the object life time, that's fine, no need to shrink to fit
+	for (Node &node : m_nodes) {
+		node.models.clear();		// destroy frame models, but retain the vector capacity
+		m_nodePool.emplace_back(std::move(node));
+	}
+	m_nodes.clear();
 	m_modelMat.Release();			// would hope we wouldn't need this but no harm in checking
 	m_nodeAttribs.Reset();
 
@@ -1751,9 +1756,16 @@ void CNew3D::RenderViewport(UINT32 addr)
 	bool vpDisabled = vpnode[0] & 0x20;						// only if viewport enabled
 
 	{
-		// create node object 
-		m_nodes.emplace_back(Node());
-		m_nodes.back().models.reserve(2048);				// create space for models
+		// Reuse viewport storage so model vectors keep their capacity between frames.
+		if (!m_nodePool.empty()) {
+			m_nodes.emplace_back(std::move(m_nodePool.back()));
+			m_nodePool.pop_back();
+			m_nodes.back().viewport = Viewport();
+			m_nodes.back().models.clear();
+		}
+		else {
+			m_nodes.emplace_back(Node());
+		}
 
 		// get pointer to its viewport
 		Viewport* vp = &m_nodes.back().viewport;

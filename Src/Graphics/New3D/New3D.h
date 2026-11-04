@@ -306,7 +306,8 @@ private:
 	Vertex			m_prev[4];				// these are class variables because sega bass fishing starts meshes with shared vertices from the previous one
 	UINT16			m_prevTexCoords[4][2];	// basically relying on undefined behavour
 
-	std::vector<Node>	 m_nodes;				// this represents the entire render frame
+	std::vector<Node>	 m_nodes;				// active viewports for the current render frame
+	std::vector<Node>	 m_nodePool;			// reuse viewport/model-vector storage between frames
 	std::vector<FVertex> m_polyBufferRam;		// dynamic polys
 	std::vector<FVertex> m_polyBufferRom;		// rom polys
 	std::unordered_map<UINT32, std::shared_ptr<std::vector<Mesh>>> m_romMap;	// a hash table for all the ROM models. The meshes don't have model matrices or tex offsets yet

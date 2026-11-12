@@ -32,6 +32,7 @@
 #ifndef INCLUDED_DSB_H
 #define INCLUDED_DSB_H
 
+#include <atomic>
 #include "Types.h"
 #include "CPU/Bus.h"
 #include "CPU/68K/68K.h"
@@ -220,7 +221,7 @@ private:
 	// Command FIFO
 	UINT8	fifo[FIFO_STACK_SIZE];
 	int		fifoIdxR;		// read position
-	int		fifoIdxW;		// write position
+	std::atomic<int>	fifoIdxW;	// write position, shared with the sound thread
 
 	// MPEG playback variables
 	int		mpegStart;
@@ -300,7 +301,7 @@ private:
 	};
 
 	// DSB memory
-	const UINT8	*progROM;		// 68K program ROM (passed in from parent object)
+	const UINT8	*progROM;		// 68K program ROM, big endian (passed in from parent object)
 	const UINT8	*mpegROM;		// MPEG music ROM
 	UINT8		*memoryPool;	// all memory allocated here
 	UINT8		*ram;			// 68K RAM
@@ -308,7 +309,7 @@ private:
 	// Command FIFO
 	UINT8	fifo[FIFO_STACK_SIZE];
 	int		fifoIdxR;		// read position
-	int		fifoIdxW;		// write position
+	std::atomic<int>	fifoIdxW;	// write position, shared with the sound thread
 
 	// Registers
 	int 	cmdLatch;

@@ -308,7 +308,7 @@ void CDSB1::IOWrite8(UINT32 addr, UINT8 data)
 		break;
 
 	case 0xE8:	// MPEG volume
-		volume = 0x7F-data;
+		volume = ~data & 0x7F;	// MSB use is unknown
 		//printf("Set Volume: %02X\n", volume);
 		break;
 
@@ -348,8 +348,10 @@ UINT8 CDSB1::IORead8(UINT32 addr)
 
 	case 0xF0:	// Latch
 		UINT8 d;
+		int idxW;
+		idxW = fifoIdxW;
 		d = fifo[fifoIdxR];	// retrieve next command byte
-		if (fifoIdxR != fifoIdxW)	// if these are equal, nothing has been written yet (don't advance)
+		if (fifoIdxR != idxW)	// if these are equal, nothing has been written yet (don't advance)
 		{
 			fifoIdxR++;
 			fifoIdxR &= FIFO_STACK_SIZE_MASK;
@@ -369,7 +371,13 @@ UINT8 CDSB1::IORead8(UINT32 addr)
 		 * Bit 0: Must be 1 for most games.
 		 * Bit 1: Command pending (used by SWA instead of IRQ)
 		 * SWA requires (status&0x38)==0 or else it loops endlessly
+		 *
+		 * This is the i8251's status: bit 1 is RxRDY, set whenever a byte is
+		 * waiting, including the first one into an empty FIFO (SWA polls it,
+		 * so otherwise it never sees a lone command such as "play").
 		 */
+		if (fifoIdxR != fifoIdxW)
+			status |= 2;
 		return status;
 	}
 
@@ -390,8 +398,9 @@ void CDSB1::SendCommand(UINT8 data)
 	 * up with the other CPUs and must process all commands it has received
 	 * over the course of a frame at once.
 	 */
-	fifo[fifoIdxW++] = data;
-	fifoIdxW &= FIFO_STACK_SIZE_MASK;
+	// Sound thread reads the FIFO: publish the index after the data
+	fifo[fifoIdxW] = data;
+	fifoIdxW = (fifoIdxW + 1) & FIFO_STACK_SIZE_MASK;
 	//printf("Write FIFO: %02X\n", data);
 
 	// Have we caught up to the read pointer?
@@ -431,7 +440,24 @@ void CDSB1::RunFrame(float *audioL, float *audioR)
 
 	// Decode MPEG for this frame
 	MpegDec::DecodeAudio(&mpegL[retainedSamples], &mpegR[retainedSamples], 32000 / 60 - retainedSamples + 2);
-	retainedSamples = Resampler.UpSampleAndMix(audioL, audioR, mpegL, mpegR, v, v, NUM_SAMPLES_PER_FRAME, 32000/60+2, 44100, 32000);
+
+	// Some streams hold two mono tracks, one in each channel. Port 0xE9 selects
+	// the channel to send to both speakers (MAME: 1 = left, 2 = right).
+	INT16 *leftChannelSource = mpegL;
+	INT16 *rightChannelSource = mpegR;
+	switch (stereo & 3)
+	{
+	case 1:
+		rightChannelSource = mpegL;
+		break;
+	case 2:
+		leftChannelSource = mpegR;
+		break;
+	default:
+		break;
+	}
+
+	retainedSamples = Resampler.UpSampleAndMix(audioL, audioR, leftChannelSource, rightChannelSource, v, v, NUM_SAMPLES_PER_FRAME, 32000/60+2, 44100, 32000);
 }
 
 void CDSB1::Reset(void)
@@ -446,6 +472,7 @@ void CDSB1::Reset(void)
 	status = 1;
 	mpegState = 0;	// why doesn't RB ever init this?
 	volume = 0x7F;	// full volume
+	stereo = 0;		// both channels as they are
 	usingLoopStart = 0;
 
 	// Even if DSB emulation is disabled, must reset to establish valid Z80 state
@@ -836,10 +863,12 @@ void CDSB2::WriteMPEGFIFO(UINT8 byte)
 	}
 }
 
+// The program ROM is in the 68K's byte order (big endian: Games.xml's
+// byte_swap region), as the CPU reads it
 UINT8 CDSB2::Read8(UINT32 addr)
 {
 	if (addr < (128*1024))
-		return progROM[addr^1];
+		return progROM[addr];
 
 	if (addr == 0xc00001)
 	{
@@ -869,7 +898,7 @@ UINT16 CDSB2::Read16(UINT32 addr)
 {
 	if (addr < (128*1024))
 	{
-		return *(UINT16 *) &progROM[addr];
+		return (UINT16(progROM[addr]) << 8) | progROM[addr+1];
 	}
 	if ((addr >= 0xf00000) && (addr < 0xf20000))
 	{
@@ -887,8 +916,8 @@ UINT32 CDSB2::Read32(UINT32 addr)
 
 	if (addr < (128*1024))
 	{
-		hi = *(UINT16 *) &progROM[addr];
-		lo = *(UINT16 *) &progROM[addr+2];
+		hi = (UINT32(progROM[addr]) << 8) | progROM[addr+1];
+		lo = (UINT32(progROM[addr+2]) << 8) | progROM[addr+3];
 		return (hi<<16)|lo;
 	}
 	if ((addr >= 0xf00000) && (addr < 0xf20000))
@@ -953,8 +982,9 @@ void CDSB2::SendCommand(UINT8 data)
 	 * up with the other CPUs and must process all commands it has received
 	 * over the course of a frame at once.
 	 */
-	fifo[fifoIdxW++] = data;
-	fifoIdxW &= FIFO_STACK_SIZE_MASK;
+	// Sound thread reads the FIFO: publish the index after the data
+	fifo[fifoIdxW] = data;
+	fifoIdxW = (fifoIdxW + 1) & FIFO_STACK_SIZE_MASK;
 	//printf("Write FIFO: %02X\n", data);
 
 	// Have we caught up to the read pointer?

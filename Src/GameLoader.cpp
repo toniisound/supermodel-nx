@@ -6,6 +6,7 @@
 #include "Util/Format.h"
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 
@@ -197,6 +198,7 @@ GameLoader::Region::ptr_t GameLoader::Region::Create(const GameLoader &loader, c
   }
 
   region->required = region_node["required"].ValueAsDefault<bool>(true);
+  region->merge = region_node["merge"].ValueAsDefault<bool>(true);
 
   // Byte layout. If byte_swap was specified, construct the byte swapped layout string based on
   // stride size. If byte_swap is set to false, empty layout string is fine.
@@ -345,6 +347,7 @@ bool GameLoader::LoadGamesFromXML(const Util::Config::Node &xml)
         ErrorLog("%s: Ignoring redefinition of game '%s'.", m_xml_filename.c_str(), game_name.c_str());
         continue;
       }
+      m_game_order.emplace(game_name, m_game_order.size());
       RegionsByName_t &regions_by_name = m_regions_by_game[game_name];
       PatchesByRegion_t &patches_by_region = m_patches_by_game[game_name];
       PopulateGameInfo(&m_game_info_by_game[game_name], game_node);
@@ -390,8 +393,9 @@ bool GameLoader::LoadGamesFromXML(const Util::Config::Node &xml)
             files.push_back(file);
           }
 
-          // Check to ensure that some files were defined in the region
-          if (files.empty())
+          // Check to ensure that some files were defined in the region (a
+          // child's unmerged region may have none: it removes the parent's)
+          if (files.empty() && region->merge)
             ErrorLog("%s: No files defined in region '%s' of '%s'.", m_xml_filename.c_str(), region->region_name.c_str(), game_name.c_str());
           else
             regions_by_name[region->region_name] = region;
@@ -459,9 +463,21 @@ bool GameLoader::MergeChildrenWithParents()
     RegionsByName_t new_regions;
     for (auto &v2: parent_regions)
     {
+      auto &region_name = v2.first;
+
+      // A child region with merge="false" replaces the parent's region
+      // entirely (as in a non-merged ROM set, which has only the child's own
+      // files), or removes it if it has no files
+      auto child_it = child_regions.find(region_name);
+      if (child_it != child_regions.end() && !child_it->second->merge)
+      {
+        if (!child_it->second->files.empty())
+          new_regions[region_name] = child_it->second;
+        continue;
+      }
+
       // Copy over parent region (shallow copy is sufficient, vector of files
       // will be copied over correctly)
-      auto &region_name = v2.first;
       new_regions[region_name] = std::make_shared<Region>(*v2.second);
       auto &new_region = new_regions[region_name];
 
@@ -489,7 +505,7 @@ bool GameLoader::MergeChildrenWithParents()
     // Simply append any region in child that does *not* exist in parent
     for (auto &v2: child_regions)
     {
-      if (new_regions.find(v2.first) == new_regions.end())
+      if (new_regions.find(v2.first) == new_regions.end() && !v2.second->files.empty())
       {
         // Since these are pointers anyway, just insert directly
         new_regions[v2.first] = v2.second;
@@ -683,6 +699,26 @@ void GameLoader::ChooseGameInZipArchive(std::string *chosen_game, bool *missing_
   std::map<std::string, std::set<File::ptr_t>> files_missing_by_merged_game;
   IdentifyGamesInZipArchive(&complete_merged_games, &files_missing_by_merged_game, zip, m_regions_by_merged_game);
 
+  // A complete game named as the zip file is the one wanted: MAME's merged
+  // sets hold a parent and its clones in one zip named after the parent, and
+  // a clone's own zip is named after it
+  {
+    std::string stem = zipfilename;
+    size_t slash = stem.find_last_of("/\\");
+    if (slash != std::string::npos)
+      stem = stem.substr(slash + 1);
+    size_t dot = stem.find_last_of('.');
+    if (dot != std::string::npos)
+      stem = stem.substr(0, dot);
+    std::transform(stem.begin(), stem.end(), stem.begin(), [](unsigned char c) { return (char) std::tolower(c); });
+    bool childOnly = complete_games.count(stem) && IsChildSet(m_game_info_by_game.find(stem)->second);
+    if (complete_merged_games.count(stem) || (complete_games.count(stem) && !childOnly))
+    {
+      chosen_game->assign(stem);
+      return;
+    }
+  }
+
   /*
    * Find incomplete child games by sorting child games out from the unmerged
    * games results and pruning out complete merged games. Don't care about
@@ -732,17 +768,34 @@ void GameLoader::ChooseGameInZipArchive(std::string *chosen_game, bool *missing_
   }
 
   // Choose game: complete merged game > incomplete child game > complete
-  // unmerged game
+  // unmerged game; among several, the one listed first in the XML file (a
+  // family's parent, then its clones in their order)
+  auto first = [this](const std::set<std::string> &games) -> std::string
+  {
+    std::string best;
+    size_t bestOrder = SIZE_MAX;
+    for (const auto &name : games)
+    {
+      auto it = m_game_order.find(name);
+      size_t order = it != m_game_order.end() ? it->second : SIZE_MAX - 1;
+      if (best.empty() || order < bestOrder)
+      {
+        best = name;
+        bestOrder = order;
+      }
+    }
+    return best;
+  };
   if (!complete_merged_games.empty())
-    chosen_game->assign(*complete_merged_games.begin());
+    chosen_game->assign(first(complete_merged_games));
   else if (!incomplete_child_games.empty())
   {
     // TODO: could use scoring to pick game with most files?
-    chosen_game->assign(*incomplete_child_games.begin());
+    chosen_game->assign(first(incomplete_child_games));
     *missing_parent_roms = true;  // try to find missing files in parent ROM zip file
   }
   else if (!complete_games.empty())
-    chosen_game->assign(*complete_games.begin());
+    chosen_game->assign(first(complete_games));
   else
   {
     ErrorLog("No complete Model 3 games found in '%s'.", zipfilename.c_str());

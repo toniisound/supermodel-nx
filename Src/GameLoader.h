@@ -32,7 +32,8 @@ private:
     size_t stride;
     size_t chunk_size;
     std::string byte_layout;
-    bool required;
+    bool required = false;
+    bool merge = true;    // in a child set: merged with the parent's region (else replaces it; with no files, removes it)
     std::vector<File::ptr_t> files;
     static ptr_t Create(const GameLoader &loader, const Util::Config::Node &region_node);
     bool AttribsMatch(const ptr_t &other) const;
@@ -41,6 +42,7 @@ private:
 
   // Game information from XML
   std::map<std::string, Game> m_game_info_by_game;
+  std::map<std::string, size_t> m_game_order;   // position in the XML file (the first listed is preferred)
 
   // ROM patches by game and by region. Cannot place into Region because child
   // sets do not inherit parent patches, which may complicate merging.
